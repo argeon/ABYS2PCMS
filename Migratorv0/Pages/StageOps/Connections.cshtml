@@ -1,0 +1,127 @@
+@page "/stage-ops/connections"
+@model MigrationWeb.Pages.StageOps.ConnectionsModel
+@{
+    ViewData["Title"] = "Stage Ops · Bağlantılar";
+}
+<link href="~/css/stage-ops.css" rel="stylesheet" />
+
+<div class="stage-ops" id="stageOpsConnections">
+    <div class="so-nav-pills">
+        <a href="/stage-ops">Hub</a>
+        <a href="/stage-ops/ctas">CTAS</a>
+        <a href="/stage-ops/transfer-sql">TRANSFER SQL</a>
+        <a href="/stage-ops/prod-sql">PROD SQL</a>
+        <a href="/stage-ops/connections" class="active">Bağlantılar</a>
+        <a href="/stage-ops/results">Sonuçlar</a>
+    </div>
+
+    <div class="so-hero">
+        <div>
+            <div class="so-badge">Oracle · MSSQL Stage 1/2</div>
+            <h1>Bağlantı tanımları</h1>
+            <p>
+                Wizard / Admin profillerinden seçin (şifre otomatik dolar), <strong>Test</strong> ile doğrulayın, sonra kaydedin.
+                Kayıt <code>stage_ops.connections.json</code> dosyasına yazılır.
+            </p>
+        </div>
+    </div>
+
+    <div id="connStatus" class="so-stat-row" style="margin-bottom:1rem"></div>
+    <div id="soAlert" class="so-alert" hidden></div>
+
+    <form id="connForm">
+        <div class="so-grid-3" style="align-items:stretch">
+            <div class="so-panel">
+                <div class="so-panel-header"><h3>CTAS · Oracle</h3></div>
+                <div style="padding:1rem;display:flex;flex-direction:column;gap:0.65rem">
+                    <label class="so-hint">Profil (Oracle veya Wizard)</label>
+                    <select class="so-select" id="oraProfile"><option value="">—</option></select>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button type="button" class="so-btn" id="btnApplyOraProfile">Profili uygula</button>
+                        <button type="button" class="so-btn so-btn-primary" id="btnTestOra">Test</button>
+                    </div>
+                    <label class="so-hint">sqlplus connect <span style="color:var(--so-danger)">*</span></label>
+                    <input class="so-input" id="oraSqlplus" placeholder="user/password@host:1521/SERVICE" autocomplete="off" />
+                    <label class="so-hint">ODP.NET (şema gate / test, opsiyonel)</label>
+                    <input class="so-input" id="oraOdp" placeholder="User Id=...;Password=...;Data Source=..." autocomplete="off" />
+                </div>
+            </div>
+
+            <div class="so-panel">
+                <div class="so-panel-header"><h3>MSSQL Stage 1 · kaynak</h3></div>
+                <div style="padding:1rem;display:flex;flex-direction:column;gap:0.65rem">
+                    <label class="so-hint">Profil (MSSQL veya Wizard)</label>
+                    <select class="so-select" id="s1Profile"><option value="">—</option></select>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button type="button" class="so-btn" id="btnApplyS1">Profili uygula</button>
+                        <button type="button" class="so-btn so-btn-primary" id="btnTestS1">Test</button>
+                    </div>
+                    <label class="so-hint">Örn. izgazMGR</label>
+                    <input class="so-input" id="s1Server" placeholder="Server / host" />
+                    <input class="so-input" id="s1Database" placeholder="Database" value="izgazMGR" />
+                    <select class="so-select" id="s1Auth">
+                        <option value="Sql">SQL Auth</option>
+                        <option value="Windows">Windows Auth</option>
+                    </select>
+                    <input class="so-input" id="s1User" placeholder="User" />
+                    <input class="so-input" id="s1Password" type="password" placeholder="Password (boş = önceki kalsın)" autocomplete="new-password" />
+                </div>
+            </div>
+
+            <div class="so-panel">
+                <div class="so-panel-header"><h3>MSSQL Stage 2 · hedef / SP</h3></div>
+                <div style="padding:1rem;display:flex;flex-direction:column;gap:0.65rem">
+                    <label class="so-hint">Profil (MSSQL veya Wizard)</label>
+                    <select class="so-select" id="s2Profile"><option value="">—</option></select>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button type="button" class="so-btn" id="btnApplyS2">Profili uygula</button>
+                        <button type="button" class="so-btn so-btn-primary" id="btnTestS2">Test</button>
+                    </div>
+                    <label class="so-hint">Örn. energy (SP_MIGRATE burada çalışır)</label>
+                    <input class="so-input" id="s2Server" placeholder="Server / host" />
+                    <input class="so-input" id="s2Database" placeholder="Database" value="energy" />
+                    <select class="so-select" id="s2Auth">
+                        <option value="Sql">SQL Auth</option>
+                        <option value="Windows">Windows Auth</option>
+                    </select>
+                    <input class="so-input" id="s2User" placeholder="User" />
+                    <input class="so-input" id="s2Password" type="password" placeholder="Password (boş = önceki kalsın)" autocomplete="new-password" />
+                </div>
+            </div>
+        </div>
+
+        <div class="so-panel" style="margin-top:1rem">
+            <div class="so-panel-header"><h3>PROD (opsiyonel)</h3></div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.65rem">
+                <div style="display:grid;grid-template-columns:minmax(200px,1fr) auto auto;gap:0.65rem;align-items:end">
+                    <div>
+                        <label class="so-hint">Profil</label>
+                        <select class="so-select" id="prodProfile"><option value="">—</option></select>
+                    </div>
+                    <button type="button" class="so-btn" id="btnApplyProd">Profili uygula</button>
+                    <button type="button" class="so-btn so-btn-primary" id="btnTestProd">Test</button>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.65rem">
+                    <input class="so-input" id="prodServer" placeholder="PROD Server" />
+                    <input class="so-input" id="prodDatabase" placeholder="Database" />
+                    <select class="so-select" id="prodAuth">
+                        <option value="Sql">SQL Auth</option>
+                        <option value="Windows">Windows Auth</option>
+                    </select>
+                    <input class="so-input" id="prodUser" placeholder="User" />
+                    <input class="so-input" id="prodPassword" type="password" placeholder="Password" autocomplete="new-password" />
+                </div>
+            </div>
+        </div>
+
+        <div class="so-toolbar" style="margin-top:1rem">
+            <button type="submit" class="so-btn so-btn-primary">Kaydet</button>
+            <button type="button" class="so-btn" id="btnReloadConn">Yenile</button>
+            <a class="so-btn so-btn-ghost" href="/stage-ops/ctas" style="text-decoration:none">CTAS board →</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script src="~/js/stage-ops/stage-ops-connections.js" asp-append-version="true"></script>
+}

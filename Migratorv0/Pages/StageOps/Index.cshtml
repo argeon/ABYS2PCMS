@@ -1,0 +1,45 @@
+@page "/stage-ops"
+@model MigrationWeb.Pages.StageOps.IndexModel
+@{
+    ViewData["Title"] = "Stage Ops";
+}
+<link href="~/css/stage-ops.css" rel="stylesheet" />
+
+<div class="stage-ops">
+    <div class="so-hero">
+        <div>
+            <div class="so-badge">Manuel stage · SSMS yerine</div>
+            <h1>Stage Ops</h1>
+            <p>
+                Mevcut CTAS ve SP scriptlerinizi olduğu gibi çalıştırın. Üç ayrı yüzeyde seçim, paralel üretim,
+                şema kontrolü ve kalıcı sonuç arşivi — Transfer Studio’dan bağımsız.
+            </p>
+        </div>
+    </div>
+
+    <div class="so-grid-3">
+        <a class="so-surface-card" href="/stage-ops/ctas">
+            <div class="so-kicker">Oracle</div>
+            <h2>CTAS</h2>
+            <p>SMS → MIGRATION. Büyük tablolar (75M–300M) için mevcut CTAS scriptleri; çoklu seçim ile paralel sqlplus worker’lar. Takip: süre + stage %, canlı COUNT yok.</p>
+            <div class="so-cta">Board’u aç →</div>
+        </a>
+        <a class="so-surface-card" href="/stage-ops/transfer-sql">
+            <div class="so-kicker">MSSQL → MSSQL</div>
+            <h2>TRANSFER SQL</h2>
+            <p>izgazMGR → energy. Mevcut SP_MIGRATE_* prosedürleri; resume / hard reset; ilerleme MIG_RUN üzerinden.</p>
+            <div class="so-cta">Board’u aç →</div>
+        </a>
+        <a class="so-surface-card" href="/stage-ops/prod-sql">
+            <div class="so-kicker">PROD</div>
+            <h2>PROD SQL</h2>
+            <p>Seçerek PROD aktarımı. Script yükleme, syntax / ilişki analizi, kaynak–hedef şema uyumu, sonuç arşivi.</p>
+            <div class="so-cta">Board’u aç →</div>
+        </a>
+    </div>
+
+    <div style="margin-top:1.25rem;display:flex;gap:0.6rem;flex-wrap:wrap">
+        <a class="so-btn so-btn-primary" href="/stage-ops/connections" style="text-decoration:none;display:inline-block">Bağlantıları tanımla</a>
+        <a class="so-btn" href="/stage-ops/results" style="text-decoration:none;display:inline-block">Tüm run sonuçları →</a>
+    </div>
+</div>

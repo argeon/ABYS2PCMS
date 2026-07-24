@@ -1,0 +1,64 @@
+/* ============================================================
+   FILE : adim_status_now.sql
+   Anlik kontrol — istedigin zaman calistir (SSMS / sqlcmd)
+   Ornek: sqlcmd -S ... -d energy -i adim_status_now.sql
+   ============================================================ */
+USE energy;
+GO
+SET NOCOUNT ON;
+
+SELECT CONVERT(VARCHAR(19), SYSDATETIME(), 120) AS [now];
+
+SELECT TOP 5
+    MIGRATION_CODE,
+    STATUS,
+    CONVERT(VARCHAR(19), STARTED_AT, 120) AS started,
+    CONVERT(VARCHAR(19), FINISHED_AT, 120) AS finished,
+    INSERTED_COUNT,
+    SOURCE_ROW_COUNT,
+    LAST_BRIDGE_KEY,
+    CASE WHEN SOURCE_ROW_COUNT > 0
+         THEN CAST(100.0 * INSERTED_COUNT / SOURCE_ROW_COUNT AS DECIMAL(5,1))
+         ELSE NULL END AS pct
+FROM dbo.MIG_RUN WITH (NOLOCK)
+WHERE MIGRATION_CODE IN (
+    'LS_005_01_INVOICE',
+    'LS_005_01_INVLINES',
+    'LS_005_01_PAYTRANS',
+    'LS_005_01_DEBT_PAYTRANS',
+    'LS_005_01_INSTALLMENT_PLAN'
+)
+ORDER BY STARTED_AT DESC;
+
+SELECT 'INV' K, COUNT_BIG(*) N FROM dbo.LS_005_01_INVOICE WITH (NOLOCK)
+UNION ALL
+SELECT 'IL_ABYS', COUNT_BIG(*) FROM dbo.LS_005_01_INVLINES WITH (NOLOCK) WHERE ABYS_ID IS NOT NULL
+UNION ALL
+SELECT 'DEBT_PT', COUNT_BIG(*) FROM dbo.LS_005_01_PAYTRANS WITH (NOLOCK)
+ WHERE ISNULL(IOCODE,0)=0 AND ABYS_ID IS NOT NULL
+UNION ALL
+SELECT 'PAY_PT', COUNT_BIG(*) FROM dbo.LS_005_01_PAYTRANS WITH (NOLOCK)
+ WHERE ISNULL(IOCODE,0)=1
+UNION ALL
+SELECT 'INST_PLAN', COUNT_BIG(*) FROM dbo.LS_005_01_INSTALLMENT_PLAN WITH (NOLOCK)
+ WHERE ABYS_ID IS NOT NULL;
+
+SELECT TOP 3
+    MIGRATION_CODE, BATCH_NO, ROW_COUNT, ELAPSED_MS,
+    CONVERT(VARCHAR(19), LOGGED_AT, 120) AS logged_at, STATUS
+FROM dbo.MIG_BATCH_LOG WITH (NOLOCK)
+ORDER BY LOG_ID DESC;
+
+SELECT r.session_id, r.status, r.command, r.total_elapsed_time/1000 AS sec,
+       LEFT(REPLACE(REPLACE(t.text, CHAR(10), ' '), CHAR(13), ' '), 100) AS txt
+FROM sys.dm_exec_requests r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+WHERE r.session_id > 50
+  AND (
+       t.text LIKE '%SP_MIGRATE%'
+    OR t.text LIKE '%POST_INDEXES%'
+    OR t.text LIKE '%EKSILTEN%'
+    OR t.text LIKE '%TAHSILAT%'
+    OR t.text LIKE '%INSTALLMENT%'
+  );
+GO

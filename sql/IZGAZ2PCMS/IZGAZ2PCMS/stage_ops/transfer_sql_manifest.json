@@ -1,0 +1,31 @@
+{
+  "surface": "transfer-sql",
+  "defaultMaxParallel": 1,
+  "stages": [
+    { "id": "SP_IT_USER", "name": "IT_USER", "domain": "REF", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_IT_USER", "sortOrder": 110, "parallelSafe": false },
+    { "id": "SP_LS_BANK", "name": "LS_BANK", "domain": "REF", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS_BANK", "sortOrder": 120, "parallelSafe": false },
+    { "id": "SP_LS_TARIFF", "name": "LS_TARIFF", "domain": "REF", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS_TARIFF", "sortOrder": 130, "parallelSafe": false },
+    { "id": "SP_LS005_FUID", "name": "LS005_FUID", "domain": "REF", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_FUID", "sortOrder": 140, "parallelSafe": false },
+    { "id": "SP_CS_REGISTER", "name": "CS_REGISTER", "domain": "MASTER", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_CS_REGISTER", "sortOrder": 200, "estimatedRows": 90000000, "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_CS_REGISTER_COMM", "name": "CS_REGISTER_COMMUNICATION", "domain": "MASTER", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_CS_REGISTER_COMMUNICATION", "sortOrder": 210, "dependsOn": ["SP_CS_REGISTER"], "parallelSafe": false },
+    { "id": "SP_GIS_FLAT", "name": "GIS_BUILDING_FLAT", "domain": "MASTER", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_GIS_BUILDING_FLAT", "sortOrder": 220, "parallelSafe": false },
+    { "id": "SP_LS005_ITEMS", "name": "LS005_ITEMS", "domain": "MASTER", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_ITEMS", "sortOrder": 240, "estimatedRows": 75000000, "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_LS005_AGR", "name": "LS005_AGR", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_AGR", "sortOrder": 300, "estimatedRows": 90000000, "dependsOn": ["SP_CS_REGISTER"], "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_LS005_GUARANTY", "name": "LS005_DEPOSIT_GUARANTY", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_DEPOSIT_GUARANTY", "sortOrder": 310, "dependsOn": ["SP_LS005_AGR"], "parallelSafe": false },
+    { "id": "SP_LS_AGR_CLOSE", "name": "LS_AGR_CLOSE", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS_AGR_CLOSE", "sortOrder": 320, "dependsOn": ["SP_LS005_AGR"], "parallelSafe": false },
+    { "id": "SP_LS005_AGR_DEV", "name": "LS005_AGR_DEV", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_AGR_DEV", "sortOrder": 330, "dependsOn": ["SP_LS005_AGR"], "estimatedRows": 300000000, "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_LS005_AGR_SERVEQ", "name": "LS005_AGR_SERVEQ", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_AGR_SERVEQ", "sortOrder": 340, "dependsOn": ["SP_LS005_AGR"], "parallelSafe": false },
+    { "id": "SP_LS005_FITMENTFEE", "name": "LS005_AGR_FITMENTFEE", "domain": "AGR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_AGR_FITMENTFEE", "sortOrder": 350, "dependsOn": ["SP_LS005_AGR"], "parallelSafe": false },
+    { "id": "SP_READING_PLAN", "name": "CS_READING_PLAN", "domain": "READ", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_CS_READING_PLAN_OKUMA_BOLGE", "sortOrder": 500, "parallelSafe": false },
+    { "id": "SP_READING_INCOME", "name": "LS005_READING_INCOME", "domain": "READ", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_READING_INCOME", "sortOrder": 510, "parallelSafe": false },
+    { "id": "SP_HHD_LOC", "name": "LS005_HHD_LOC_INV_TRAN", "domain": "READ", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_HHD_LOC_INV_TRAN", "sortOrder": 520, "parallelSafe": false },
+    { "id": "SP_CS_APPOINTMENT", "name": "LS005_CS_APPOINTMENT", "domain": "WO", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_CS_APPOINTMENT", "sortOrder": 530, "parallelSafe": false },
+    { "id": "SP_WO_WORK_RESULT", "name": "LS005_WO_WORK_RESULT", "domain": "WO", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_WO_WORK_RESULT", "sortOrder": 540, "parallelSafe": false },
+    { "id": "SP_COMM_LOG", "name": "LS_COMMUNICATION_LOG", "domain": "COMM", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS_COMMUNICATION_LOG", "sortOrder": 550, "parallelSafe": false },
+    { "id": "SP_OPR_SYNC", "name": "LS_OPR_SYNC_CLIENT", "domain": "OPR", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS_OPR_SYNC_CLIENT", "sortOrder": 560, "parallelSafe": false },
+    { "id": "SP_INVOICE", "name": "LS005_INVOICE", "domain": "INV", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_INVOICE", "sortOrder": 570, "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_DEBT_PAYTRANS", "name": "LS005_DEBT_PAYTRANS", "domain": "INV", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_DEBT_PAYTRANS", "sortOrder": 575, "dependsOn": ["SP_INVOICE"], "parallelSafe": false },
+    { "id": "SP_INVLINES", "name": "LS005_INVLINES", "domain": "INV", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LS005_INVLINES", "sortOrder": 580, "dependsOn": ["SP_INVOICE"], "slotCost": 2, "parallelSafe": false },
+    { "id": "SP_LP", "name": "LP", "domain": "LEGAL", "kind": "SpMigrate", "procedureName": "energy.dbo.SP_MIGRATE_LP", "sortOrder": 600, "parallelSafe": false }
+  ]
+}

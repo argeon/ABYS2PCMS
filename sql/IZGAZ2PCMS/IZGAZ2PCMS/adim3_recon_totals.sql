@@ -1,0 +1,198 @@
+/* ============================================================
+   FILE : adim3_recon_totals.sql
+   NOT  : Donuyorsa BUNU KULLANMAYIN.
+          Kullanin: adim3_pcms_kontrol_hizli.sql
+          Oracle : oracleControl/adim3_recon_totals.sql
+   ============================================================
+   Hizli toplam karsilastirma — Oracle ile AYNI kolon seti
+   Once (bir kez): adim3_verify_indexes.sql  (ozellikle PT INVOICEREF)
+   ============================================================ */
+USE energy;
+GO
+
+DECLARE @AGR_ID BIGINT = 197168;
+DECLARE @Eps FLOAT = 0.01;
+
+IF OBJECT_ID('tempdb..#SRC_INV') IS NOT NULL DROP TABLE #SRC_INV;
+CREATE TABLE #SRC_INV (
+    ABYS_ACTION_ID BIGINT NOT NULL PRIMARY KEY,
+    PAYABLETOTAL   FLOAT NULL,
+    TLTOTAL        FLOAT NULL,
+    TAX            FLOAT NULL,
+    GRANDTOTAL     FLOAT NULL,
+    IOCODE         INT NULL,
+    [TYPE]         INT NULL,
+    ABYS_ACTION_TYPE_ID BIGINT NULL
+);
+
+-- Kucuk kaynak: izgazMGR (index: IX_MIG_LSINV_AGR_ACTION)
+INSERT INTO #SRC_INV (
+    ABYS_ACTION_ID, PAYABLETOTAL, TLTOTAL, TAX, GRANDTOTAL, IOCODE, [TYPE], ABYS_ACTION_TYPE_ID
+)
+SELECT
+    CAST(s.ABYS_ACTION_ID AS BIGINT),
+    CAST(s.PAYABLETOTAL AS FLOAT),
+    CAST(s.TLTOTAL AS FLOAT),
+    CAST(s.TAX AS FLOAT),
+    CAST(s.GRANDTOTAL AS FLOAT),
+    ISNULL(CAST(s.IOCODE AS INT), 0),
+    CAST(s.[TYPE] AS INT),
+    s.ABYS_ACTION_TYPE_ID
+FROM izgazMGR.dbo.LS_INVOICE s WITH (NOLOCK)
+WHERE s.ABYS_AGREEMENT_ID = @AGR_ID;
+
+/* ---------- 1) MGR + ENERGY + DEBT PT (PK/seek) ---------- */
+SELECT * FROM (
+    SELECT
+        'IZGAZMGR' AS SRC,
+        @AGR_ID AS AGR_ID,
+        COUNT_BIG(*) AS INV_CNT,
+        SUM(CASE WHEN IOCODE = 0 THEN 1 ELSE 0 END) AS INV_IOCODE0,
+        ROUND(SUM(ISNULL(PAYABLETOTAL, 0)), 2) AS INV_SUM,
+        ROUND(SUM(ISNULL(TLTOTAL, 0)), 2) AS INV_TL,
+        ROUND(SUM(ISNULL(TAX, 0)), 2) AS INV_TAX,
+        ROUND(SUM(ISNULL(GRANDTOTAL, 0)), 2) AS INV_GRAND,
+        CAST(NULL AS BIGINT) AS LINE_CNT,
+        CAST(NULL AS FLOAT) AS LINE_SUM,
+        SUM(CASE WHEN IOCODE = 0 THEN 1 ELSE 0 END) AS EXPECTED_DEBT_PT,
+        ROUND(SUM(CASE WHEN IOCODE = 0 THEN ISNULL(PAYABLETOTAL, 0) ELSE 0 END), 2) AS EXPECTED_PT_SUM
+    FROM #SRC_INV
+
+    UNION ALL
+
+    SELECT
+        'ENERGY_INV',
+        @AGR_ID,
+        COUNT_BIG(*),
+        SUM(CASE WHEN ISNULL(t.IOCODE, 0) = 0 THEN 1 ELSE 0 END),
+        ROUND(SUM(ISNULL(CAST(t.PAYABLETOTAL AS FLOAT), 0)), 2),
+        ROUND(SUM(ISNULL(CAST(t.TLTOTAL AS FLOAT), 0)), 2),
+        ROUND(SUM(ISNULL(CAST(t.TAX AS FLOAT), 0)), 2),
+        ROUND(SUM(ISNULL(CAST(t.GRANDTOTAL AS FLOAT), 0)), 2),
+        NULL, NULL,
+        SUM(CASE WHEN ISNULL(t.IOCODE, 0) = 0 THEN 1 ELSE 0 END),
+        ROUND(SUM(CASE WHEN ISNULL(t.IOCODE, 0) = 0
+                       THEN ISNULL(CAST(t.PAYABLETOTAL AS FLOAT), 0) ELSE 0 END), 2)
+    FROM #SRC_INV s
+    INNER JOIN energy.dbo.LS_005_01_INVOICE t WITH (NOLOCK)
+        ON t.LREF = CAST(s.ABYS_ACTION_ID AS INT)
+
+    UNION ALL
+
+    SELECT
+        'ENERGY_DEBT_PT',
+        @AGR_ID,
+        COUNT_BIG(DISTINCT s.ABYS_ACTION_ID),
+        COUNT_BIG(*),
+        ROUND(SUM(ISNULL(CAST(pt.PAYABLETOTAL AS FLOAT), 0)), 2),
+        NULL, NULL, NULL,
+        NULL, NULL,
+        COUNT_BIG(*),
+        ROUND(SUM(ISNULL(CAST(pt.PAYABLETOTAL AS FLOAT), 0)), 2)
+    FROM #SRC_INV s
+    INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = CAST(s.ABYS_ACTION_ID AS INT)
+       AND ISNULL(pt.IOCODE, 0) = 0
+       AND pt.ABYS_ID IS NOT NULL
+) x
+ORDER BY CASE SRC
+    WHEN 'IZGAZMGR' THEN 1
+    WHEN 'ENERGY_INV' THEN 2
+    WHEN 'ENERGY_DEBT_PT' THEN 3
+END;
+
+/* ---------- 2) INVLINES toplam (varsa) ---------- */
+IF OBJECT_ID('izgazMGR.dbo.LS_INVLINES', 'U') IS NOT NULL
+BEGIN
+    SELECT
+        'IZGAZMGR_LINES' AS SRC,
+        @AGR_ID AS AGR_ID,
+        COUNT_BIG(*) AS LINE_CNT,
+        ROUND(SUM(ISNULL(CAST(l.GRANDTOTAL AS FLOAT), 0)), 2) AS LINE_SUM,
+        ROUND(SUM(ISNULL(CAST(l.TLTOTAL AS FLOAT), 0)), 2) AS LINE_TL,
+        ROUND(SUM(ISNULL(CAST(l.TAX AS FLOAT), 0)), 2) AS LINE_TAX
+    FROM izgazMGR.dbo.LS_INVLINES l WITH (NOLOCK)
+    WHERE EXISTS (
+        SELECT 1 FROM #SRC_INV s
+        WHERE CAST(s.ABYS_ACTION_ID AS INT) = l.INVOICEREF
+    );
+
+    IF OBJECT_ID('energy.dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+        SELECT
+            'ENERGY_LINES' AS SRC,
+            @AGR_ID AS AGR_ID,
+            COUNT_BIG(*) AS LINE_CNT,
+            ROUND(SUM(ISNULL(CAST(l.GRANDTOTAL AS FLOAT), 0)), 2) AS LINE_SUM,
+            ROUND(SUM(ISNULL(CAST(l.TLTOTAL AS FLOAT), 0)), 2) AS LINE_TL,
+            ROUND(SUM(ISNULL(CAST(l.TAX AS FLOAT), 0)), 2) AS LINE_TAX
+        FROM energy.dbo.LS_005_01_INVLINES l WITH (NOLOCK)
+        WHERE l.ABYS_ID IS NOT NULL
+          AND EXISTS (
+                SELECT 1 FROM #SRC_INV s
+                WHERE CAST(s.ABYS_ACTION_ID AS INT) = l.INVOICEREF
+              );
+END
+
+/* ---------- 3) PASS/FAIL (PK join — tarama yok) ---------- */
+;WITH
+mgr AS (SELECT COUNT_BIG(*) CNT, SUM(ISNULL(PAYABLETOTAL,0)) AMT FROM #SRC_INV),
+en AS (
+    SELECT COUNT_BIG(*) CNT, SUM(ISNULL(CAST(t.PAYABLETOTAL AS FLOAT),0)) AMT
+    FROM #SRC_INV s
+    INNER JOIN energy.dbo.LS_005_01_INVOICE t WITH (NOLOCK)
+        ON t.LREF = CAST(s.ABYS_ACTION_ID AS INT)
+),
+pt AS (
+    SELECT COUNT_BIG(*) CNT, SUM(ISNULL(CAST(pt.PAYABLETOTAL AS FLOAT),0)) AMT
+    FROM #SRC_INV s
+    INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = CAST(s.ABYS_ACTION_ID AS INT)
+       AND ISNULL(pt.IOCODE, 0) = 0
+       AND pt.ABYS_ID IS NOT NULL
+),
+miss AS (
+    SELECT COUNT_BIG(*) CNT
+    FROM #SRC_INV s
+    WHERE NOT EXISTS (
+        SELECT 1 FROM energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        WHERE pt.INVOICEREF = CAST(s.ABYS_ACTION_ID AS INT)
+          AND ISNULL(pt.IOCODE, 0) = 0
+          AND pt.ABYS_ID IS NOT NULL
+    )
+)
+SELECT
+    @AGR_ID AS AGR_ID,
+    mgr.CNT AS MGR_INV,
+    en.CNT  AS EN_INV,
+    pt.CNT  AS EN_DEBT_PT,
+    ROUND(mgr.AMT, 2) AS MGR_SUM,
+    ROUND(en.AMT, 2)  AS EN_SUM,
+    ROUND(pt.AMT, 2)  AS EN_PT_SUM,
+    miss.CNT AS MISSING_DEBT_PT,
+    CASE WHEN mgr.CNT = en.CNT THEN 'PASS' ELSE 'FAIL' END AS G_INV_CNT,
+    CASE WHEN ABS(ISNULL(mgr.AMT,0) - ISNULL(en.AMT,0)) <= @Eps THEN 'PASS' ELSE 'FAIL' END AS G_INV_AMT,
+    CASE WHEN en.CNT = pt.CNT THEN 'PASS' ELSE 'FAIL' END AS G_PT_CNT,
+    CASE WHEN ABS(ISNULL(en.AMT,0) - ISNULL(pt.AMT,0)) <= @Eps THEN 'PASS' ELSE 'FAIL' END AS G_PT_AMT,
+    CASE WHEN miss.CNT = 0 THEN 'PASS' ELSE 'FAIL' END AS G_PT_MISS,
+    CASE
+        WHEN mgr.CNT = en.CNT AND en.CNT = pt.CNT
+         AND ABS(ISNULL(mgr.AMT,0) - ISNULL(en.AMT,0)) <= @Eps
+         AND ABS(ISNULL(en.AMT,0) - ISNULL(pt.AMT,0)) <= @Eps
+         AND miss.CNT = 0
+        THEN 'PASS' ELSE 'FAIL'
+    END AS OVERALL
+FROM mgr, en, pt, miss;
+
+/* ---------- 4) Oracle beklenen (manuel yapistir) ---------- */
+/*
+Oracle adim3_recon_totals.sql sonucu ornek:
+  SRC=ORACLE INV_CNT=259 INV_SUM=109843.94 LINE_CNT=1277 EXPECTED_DEBT_PT=259
+
+Karsilastir:
+  ORACLE.INV_CNT     = IZGAZMGR.INV_CNT = ENERGY_INV.INV_CNT
+  ORACLE.INV_SUM     = IZGAZMGR.INV_SUM = ENERGY_INV.INV_SUM = ENERGY_DEBT_PT.EXPECTED_PT_SUM
+  ORACLE.LINE_CNT    = IZGAZMGR_LINES.LINE_CNT (= ENERGY_LINES eger 581 yapildiysa)
+*/
+
+DROP TABLE #SRC_INV;
+GO

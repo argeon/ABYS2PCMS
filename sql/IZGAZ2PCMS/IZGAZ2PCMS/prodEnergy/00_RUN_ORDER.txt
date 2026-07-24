@@ -1,0 +1,27 @@
+﻿prodEnergy — PROD SIFIRDAN (CTAS ILE BASLAR)
+
+PLAN: MANUAL_RUN_PLAN_GREENFIELD.txt
+
+================================================================
+SIMDI: ORACLE CTAS BASTAN (manuel sqlplus, prod2/)
+================================================================
+O0   00_session_parallel.sql          ★ ILK
+O0b  00_mig_param_full.sql
+O10  10_stg_inv_acc_inc.sql
+O11  11_ls_invoice.sql
+O12  12_ls_invlines.sql
+O13  13_ls_mig_agr_list.sql
+O14  14_ls_debt_paytrans.sql
+O20  20_ls_eksilten_overlay.sql
+O27  27_gate_eksilten.sql
+O30  30_ls_tahsilat_overlay.sql       (full; 31_ONLY degil)
+O40  40_ls_tahsilat_log.sql           (ops)
+O41  41_gate_tahsilat.sql
+O50  50_ls_afl_open_debt.sql
+
+Sonra: Dump → L0/E0 → AGR kontrol → 571→581→575 → 590→597 → E60/E70/E91
+Hotfix YOK | 00_run_all kullanma (yedek; O50 ekli)
+
+Delta (eski energy yama): MANUAL_RUN_PLAN.txt
+Log (energy asamasinda): 00_mig_step_log__*
+Host: PG-098 local | PID 20188

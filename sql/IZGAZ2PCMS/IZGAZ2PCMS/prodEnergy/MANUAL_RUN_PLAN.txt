@@ -1,0 +1,127 @@
+================================================================================
+MANUEL KOŞU PLANI — CTAS + energy (OTOMASYON YOK)
+Tarih sablon: 2026-07-24 | Host: PG-098 (MSSQL) + Oracle MIGRATION
+================================================================================
+
+KURALLAR
+--------
+1) Hicbir 00_run_all / 30_adim_*_full_run / .cmd zinciri KULLANMA
+2) Her adimi TEK TEK SSMS / sqlplus ile calistir
+3) Her adimda: mark START → script → mark OK/FAIL
+4) Performans: asagidaki PERF listesine uy; ihlal = dur
+5) Log: energy.dbo.MIG_STEP_LOG + (istege) dosya logs/Bxx_yyyymmdd.log
+
+LOG KURULUMU (bir kez)
+----------------------
+[ ] L0  prodEnergy/00_mig_step_log__setup.sql
+Takip:
+  SELECT STEP_ID, STATUS, STARTED_AT, FINISHED_AT, DURATION_SEC, ROWCOUNT_NOTE, NOTE
+  FROM energy.dbo.MIG_STEP_LOG ORDER BY LOG_ID;
+
+PERF (kesinlikle)
+-----------------
+[ ] PG-098 local — BT100 remote YOK
+[ ] PID 20188 killer izle
+[ ] 00_pre_indexes dump SONRASI, buyuk INSERT ONCESI
+[ ] 597 @CLEAN=0 (FULL CLEAN YOK — 139M yeniden yazma)
+[ ] 590/597 OPTION MAXDOP sunucuyla uyumlu (8 veya 24 SP icinde)
+[ ] Oracle CTAS: PARALLEL 52 sadece CTAS; gate sifir maliyetli
+[ ] 613 @RUN_FULL=0 default; full ayri karar
+[ ] AFL FRK: ACCOUNT grain; full NOT EXISTS 350M IL YOK
+
+================================================================================
+BOLUM O — Oracle CTAS (sqlplus, klasor: oracleCTAS/prod2/)
+================================================================================
+Onkosul: SMS + MIGRATION. LS_INVOICE (11) zaten varsa O1-O5 SKIP.
+
+--- Temel (sadece ilk kurulum / yeniden uretim) ---
+[ ] O0   00_session_parallel.sql          STEP=O0
+[ ] O0b  00_mig_param_full.sql            STEP=O0b
+[ ] O10  10_stg_inv_acc_inc.sql           STEP=O10
+[ ] O11  11_ls_invoice.sql                STEP=O11   | gate: BAD_LREF=0
+[ ] O12  12_ls_invlines.sql               STEP=O12
+[ ] O13  13_ls_mig_agr_list.sql           STEP=O13
+[ ] O14  14_ls_debt_paytrans.sql          STEP=O14   | (energy 575 alternatif)
+
+--- Faz B overlay (delta; 11/12 varsa buradan) ---
+[ ] O20  20_ls_eksilten_overlay.sql       STEP=O20
+         Uretir: LS_OV_EKS_*, IADE_*, MAIN_UPD, KISMI_*, KISMI_PAYTRANS
+[ ] O27  27_gate_eksilten.sql             STEP=O27
+         PASS: TAM=IADE=IADE_PT; KISMI_HDR=KISMI_PT; KISMI_NEG_AMT=0
+[ ] O31  31_ls_pay_alloc_waterfill__ONLY.sql   STEP=O31   *** tercih ***
+         Uretir: ALLOC, PAY_PT, TAH_INVOICE, DEBT_PAID_UPD
+         PASS: PAY_OVER_FULL≈0; MAIN_OVER_PAYABLE≈0
+         (O30 full 30_ls_tahsilat_overlay.sql ALTERNATIF — Cancel/MAHSUP da isterse)
+[ ] O40  40_ls_tahsilat_log.sql           STEP=O40   (opsiyonel diag)
+[ ] O41  41_gate_tahsilat.sql             STEP=O41   (O30 sonrasi; O31 icin O31 recon yeter)
+[ ] O50  50_ls_afl_open_debt.sql          STEP=O50   (standalone FRK master)
+
+DUMP (manuel MigrationEngine / BCP — otomatik degil)
+----
+[ ] D1   Dump OV eksilten: LS_OV_IADE_*, MAIN_UPD, KISMI_* (+KISMI_PAYTRANS)
+[ ] D2   Dump OV tahsilat: LS_OV_PAY_ALLOC, PAY_PT, TAH_INVOICE, DEBT_PAID_UPD
+         (+ CANCEL/MAHSUP varsa O30 ile uretildiyse)
+[ ] D3   Dump LS_AFL_OPEN_DEBT
+Hedef: izgazMGR.dbo.*
+
+================================================================================
+BOLUM E — energy / izgazMGR (SSMS PG-098)
+================================================================================
+
+[ ] E0   00_pre_indexes.sql               STEP=E0
+         Dump sonrasi; tablo yoksa atlar
+
+--- Hotfix (gerekirse, CTAS beklemeden) ---
+[ ] A03  hotfix/03_backfill_iade_invlines.sql   @DRY_RUN=1→0   STEP=A03
+[ ] A04  hotfix/04_patch_kismi_debt_pt.sql      @DRY_RUN=1→0   STEP=A04
+[ ] A01  hotfix/01_diag_kurus_src_en.sql        STEP=A01
+         PASS: src_ne_en=0
+
+--- Overlay apply ---
+[ ] E10  10_590_EKSILTEN_OVERLAY__deploy.sql    STEP=E10  (sadece SP)
+[ ] E590 EXEC SP_MIGRATE_EKSILTEN_OVERLAY_AGR
+           @AGR_ID=NULL, @CLEAN=1, @DEBUG=1      STEP=E590
+[ ] E20  20_597_TAHSILAT_OVERLAY__deploy.sql    STEP=E20
+[ ] E597 EXEC SP_MIGRATE_TAHSILAT_OVERLAY_AGR
+           @AGR_ID=NULL, @CLEAN=0, @DEBUG=1      STEP=E597
+         *** @CLEAN=1 YASAK (full) ***
+
+--- Kontrol ---
+[ ] E60  60_adim_post_mig_kontrol.sql           STEP=E60
+[ ] E70  70_rapor_tahakkuk_tahsilat_gelir.sql   STEP=E70
+
+--- AFL FRK ---
+[ ] E0b  00_pre_indexes.sql (AFL ix)            STEP=E0b
+[ ] E91  90_afl_frk/91_afl_frk_compare_log.sql  STEP=E91
+         Log: MIG_AFL_FRK_LOG — KIND ozeti kaydet
+
+--- Taksit (opsiyonel, pahali) ---
+[ ] E80  80_613_taksit__STANDALONE.sql
+           @RUN_FULL=0 once                             STEP=E80a
+           @RUN_FULL=1 sadece karar sonrasi             STEP=E80b
+
+================================================================================
+SIRALAMA OZETI (kopyala-isaretle)
+================================================================================
+O0 → O0b → (O10..O14 gerekirse) → O20 → O27 → O31 → (O40/O41) → O50
+→ D1 D2 D3 → E0 → (A03 A04 A01) → E10 → E590 → E20 → E597 → E60 E70
+→ E91 → (E80)
+
+KULLANMA
+--------
+- oracleCTAS/prod2/00_run_all.sql          (otomatik CTAS zinciri)
+- prodEnergy/30_adim_590_597_full_run.sql  (otomatik 590+597)
+- prodEnergy/50_run_597_resume_ON_SERVER.cmd (istege bagli; manuel EXEC tercih)
+
+DOSYA LOG (opsiyonel)
+---------------------
+sqlplus ... @20_... | tee logs/O20_20260724.log
+sqlcmd ... -i 00_pre_indexes.sql -o logs/E0_20260724.log
+
+MIG_STEP_LOG ornek isaret
+-------------------------
+-- Baslamadan:
+--   @STEP_ID='O20' @STEP_NAME=N'20 eksilten' @STATUS='START'
+-- Bitince:
+--   @STEP_ID='O20' @STATUS='OK' @ROWCOUNT_NOTE=N'KISMI_HDR=...'
+================================================================================

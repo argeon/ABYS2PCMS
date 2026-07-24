@@ -1,0 +1,344 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Migrasyon paneli";
+}
+
+<div class="dashboard-page px-2 px-md-3">
+    <!-- Motor araç çubuğu -->
+    <div class="engine-toolbar card border-0 mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 gap-sm-3">
+                <span class="engine-toolbar-icon flex-shrink-0" aria-hidden="true"><i class="fas fa-cogs"></i></span>
+                <span class="small fw-semibold text-secondary text-uppercase flex-shrink-0" style="letter-spacing: 0.08em; font-size: 0.68rem;">Motor</span>
+                <span id="engineStatus" class="badge rounded-pill bg-secondary flex-shrink-0">Kontrol…</span>
+                <span id="engineStatusDetail" class="small text-muted text-truncate engine-status-detail" title=""></span>
+                <div class="d-flex align-items-center gap-2 flex-wrap ms-auto flex-shrink-0">
+                    <a class="btn btn-outline-secondary btn-sm" href="/wizard" title="Migration yapılandırması (wizard)">
+                        <i class="fas fa-magic"></i><span class="d-none d-md-inline ms-1">Wizard</span>
+                    </a>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Migration profillerini yönet">
+                            <i class="fas fa-database"></i><span class="d-none d-md-inline ms-1">Profiller</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header"><i class="fas fa-folder"></i> Kayıtlı Profiller</h6></li>
+                            <div id="profilesMenuContainer">
+                                <div class="profile-menu-row d-flex align-items-center px-3 py-1">
+                                    <span class="small text-muted"><i class="fas fa-spinner fa-spin me-1"></i> Yükleniyor…</span>
+                                </div>
+                            </div>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/history#profiles"><i class="fas fa-list"></i> Tüm Profiller</a></li>
+                            <li><a class="dropdown-item" href="/wizard"><i class="fas fa-plus-circle"></i> Yeni Profil</a></li>
+                        </ul>
+                    </div>
+                    <a class="btn btn-outline-warning btn-sm" href="/history" title="Migration geçmişi">
+                        <i class="fas fa-history"></i><span class="d-none d-md-inline ms-1">Geçmiş</span>
+                    </a>
+                    <a class="btn btn-outline-danger btn-sm" href="/errors" title="Hata analizi">
+                        <i class="fas fa-exclamation-triangle"></i><span class="d-none d-md-inline ms-1">Hatalar</span>
+                    </a>
+                    <a class="btn btn-outline-success btn-sm" href="/validation" title="Tablo doğrulama">
+                        <i class="fas fa-check-double"></i><span class="d-none d-md-inline ms-1">Doğrulama</span>
+                    </a>
+                    <div class="btn-group" role="group" aria-label="Migration motoru">
+                        <button type="button" class="btn btn-success btn-sm" id="startEngineBtn" onclick="startMigrationEngine()" title="Gerekirse build, ardından motoru başlat">
+                            <i class="fas fa-play"></i><span class="d-none d-md-inline ms-1">Başlat</span>
+                        </button>
+                        <button type="button" class="btn btn-outline-danger btn-sm d-none" id="stopEngineBtn" onclick="stopMigrationEngine()" title="Motor sürecini durdur">
+                            <i class="fas fa-stop"></i><span class="d-none d-md-inline ms-1">Durdur</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="connectionStatus" class="alert alert-info d-none dash-alert mb-3" role="status">
+        <strong>Bağlanıyor…</strong> Migration motoru ile SignalR bağlantısı kuruluyor…
+    </div>
+
+    <div id="noMigrationAlert" class="dash-alert mb-3" role="status">
+        <div class="idle-state-card text-center py-5">
+            <div class="idle-state-icon mb-3">
+                <i class="fas fa-database fa-3x text-muted opacity-50"></i>
+            </div>
+            <h5 class="text-muted mb-1">Migration motoru bekleniyor</h5>
+            <p class="text-muted small mb-4">Henüz aktif bir migration yok. Başlamak için wizard'ı kullanın veya motoru başlatın.</p>
+            <div class="d-flex justify-content-center gap-2 flex-wrap">
+                <a href="/wizard" class="btn btn-primary btn-sm">
+                    <i class="fas fa-magic me-1"></i> Yeni Migration
+                </a>
+                <button class="btn btn-outline-success btn-sm" onclick="startMigrationEngine()">
+                    <i class="fas fa-play me-1"></i> Motoru Başlat
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="migrationCompleteBanner" class="alert alert-success alert-dismissible fade d-none mb-3" role="alert">
+        <i class="fas fa-check-circle me-2"></i>
+        <strong>Migration tamamlandı!</strong> Tüm tablolar başarıyla aktarıldı.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <div id="dashboardContent" class="d-none">
+        <!-- Özet -->
+        <div class="card mb-4 dash-hero summary-card border-0">
+            <div class="card-header border-0">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar" aria-hidden="true"></i> Migration özeti
+                </h5>
+            </div>
+            <div class="card-body pt-0">
+                <div class="row g-3 mb-1">
+                    <div class="col-md-6">
+                        <div class="info-box">
+                            <i class="fas fa-clock text-info" aria-hidden="true"></i>
+                            <div>
+                                <strong class="d-block small text-secondary text-uppercase" style="letter-spacing: 0.06em;">Başlangıç</strong>
+                                <span id="migrationStartTime" class="fw-semibold">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-box">
+                            <i class="fas fa-flag-checkered text-success" aria-hidden="true"></i>
+                            <div>
+                                <strong class="d-block small text-secondary text-uppercase" style="letter-spacing: 0.06em;">Tahmini bitiş</strong>
+                                <span id="migrationEndTime" class="fw-semibold">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row row-cols-2 row-cols-lg-5 g-3 mb-2">
+                    <div class="col">
+                        <div class="stat-box h-100">
+                            <div class="stat-label">Toplam tablo</div>
+                            <div class="stat-value" id="totalTables">0</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-box h-100">
+                            <div class="stat-label">Tamamlanan</div>
+                            <div class="stat-value text-success" id="completedTables">0</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-box h-100">
+                            <div class="stat-label">Çalışan</div>
+                            <div class="stat-value text-primary" id="runningTables">0</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-box h-100">
+                            <div class="stat-label">Bekleyen</div>
+                            <div class="stat-value text-secondary" id="pendingTables">0</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-box h-100">
+                            <div class="stat-label">Hatalı</div>
+                            <div class="stat-value text-danger" id="failedTables">0</div>
+                        </div>
+                    </div>
+                </div>
+                <p class="small text-muted mb-2" id="summaryTableRowLine"></p>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+                    <span class="badge rounded-pill bg-secondary-subtle text-secondary-emphasis border" id="migrationLifecycle">Başlamadı</span>
+                    <span class="badge rounded-pill bg-secondary-subtle text-secondary-emphasis border" id="rowEqualityBadge">Eşitlik bekleniyor</span>
+                </div>
+
+                <hr class="my-4 opacity-25" />
+
+                <div class="mb-3">
+                    <div class="dash-section-title">
+                        <i class="fas fa-balance-scale" aria-hidden="true"></i> Satır karşılaştırması
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="comparison-box source-box">
+                                <div class="comparison-label">
+                                    <i class="fas fa-database" aria-hidden="true"></i> Kaynak (Oracle)
+                                </div>
+                                <div class="comparison-value" id="sourceRowCount">0</div>
+                                <div class="comparison-sublabel">Kaynak toplam satır</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="comparison-box destination-box">
+                                <div class="comparison-label">
+                                    <i class="fas fa-server" aria-hidden="true"></i> Hedef (MSSQL)
+                                </div>
+                                <div class="comparison-value" id="destinationRowCount">0</div>
+                                <div class="comparison-sublabel">Hedefte işlenen satır</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="comparison-box difference-box">
+                                <div class="comparison-label">
+                                    <i class="fas fa-exchange-alt" aria-hidden="true"></i> Fark
+                                </div>
+                                <div class="comparison-value" id="differenceRowCount">0</div>
+                                <div class="comparison-sublabel">
+                                    <span id="matchStatus" class="badge bg-secondary">Kontrol…</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="d-flex justify-content-between align-items-baseline mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="dash-progress-label">Genel ilerleme</span>
+                            <span id="currentPhaseLabel" class="badge bg-primary-subtle text-primary-emphasis border d-none" style="font-size:0.7rem;"></span>
+                        </div>
+                        <span id="overallPercent" class="dash-progress-pct">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div id="overallProgress" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    </div>
+                </div>
+
+                <div class="dash-meta-grid">
+                    <div class="dash-meta-item">
+                        <div class="label">Geçen süre</div>
+                        <div class="value" id="elapsedTime">--:--:--</div>
+                    </div>
+                    <div class="dash-meta-item">
+                        <div class="label">Throughput</div>
+                        <div class="value" id="throughput">0 satır/sn</div>
+                    </div>
+                    <div class="dash-meta-item">
+                        <div class="label">Durum</div>
+                        <div class="value" id="migrationStatus">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 border-0">
+            <div class="card-header border-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="fas fa-table me-1"></i> Tablo bazlı ilerleme</h5>
+                <small class="text-muted" id="tableProgressSummary">Veri bekleniyor…</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Tablo</th>
+                                <th>Durum</th>
+                                <th class="text-end">İşlenen</th>
+                                <th class="text-end">Hedef</th>
+                                <th class="text-end">Kalan</th>
+                                <th style="min-width:180px">İlerleme</th>
+                                <th class="text-end">Paralel</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableProgressGrid">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">Tablo ilerleme verisi bekleniyor…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 border-0" id="activeThreadsPanel" style="display: none;">
+            <div class="card-header border-0 d-flex align-items-center gap-2">
+                <h5 class="mb-0">Aktif thread'ler (<span id="activeThreadCount">0</span>)</h5>
+            </div>
+            <div class="card-body pt-0">
+                <div id="activeThreadsGrid" class="row g-2"></div>
+            </div>
+        </div>
+
+        <div class="card mb-4 border-0">
+            <div class="card-header border-0 d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <h5 class="mb-0 d-flex align-items-center flex-wrap gap-2">
+                    <span><i class="fas fa-th-list me-1" aria-hidden="true"></i> Partition ilerlemesi</span>
+                    <span class="badge rounded-pill bg-secondary" id="partitionCount">0</span>
+                </h5>
+                <small class="text-muted d-none d-md-block">Aynı migration run · canlı</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="partition-strip">
+                    <div class="strip-title">
+                        <i class="fas fa-project-diagram me-1" aria-hidden="true"></i> Paralel partitionlar
+                    </div>
+                    <div id="partitionParallelSummary" class="small fw-medium text-body mb-2">
+                        Veri bekleniyor…
+                    </div>
+                    <div id="partitionParallelList" class="partition-chip-list small text-body"></div>
+                </div>
+                <div class="table-responsive partition-scroll">
+                    <table class="table table-sm table-hover mb-0 partition-grid">
+                        <thead>
+                            <tr>
+                                <th>Tablo</th>
+                                <th>P.</th>
+                                <th>Durum</th>
+                                <th class="text-end">İşlenen</th>
+                                <th class="text-end">Hedef</th>
+                                <th style="min-width: 120px">İlerleme</th>
+                                <th class="text-end">Süre</th>
+                                <th>Hata</th>
+                            </tr>
+                        </thead>
+                        <tbody id="partitionGrid">
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-4">Partition checkpoint yok</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 border-0">
+            <div class="card-header border-0 dash-log-header d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center justify-content-between gap-3">
+                <h5 class="mb-0">Migration log</h5>
+                <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2 gap-sm-3">
+                    <div class="btn-group btn-group-sm log-filter-group flex-wrap" role="group" aria-label="Log seviyesi">
+                        <button type="button" class="btn btn-outline-secondary active" data-filter="all">Tümü</button>
+                        <button type="button" class="btn btn-outline-info" data-filter="info">Bilgi</button>
+                        <button type="button" class="btn btn-outline-warning" data-filter="warning">Uyarı</button>
+                        <button type="button" class="btn btn-outline-danger" data-filter="error">Hata</button>
+                    </div>
+                    <label class="log-auto-scroll mb-0 d-flex align-items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="autoScroll" class="form-check-input m-0" checked>
+                        Otomatik kaydırma
+                    </label>
+                </div>
+            </div>
+            <div class="card-body pt-0">
+                <div id="logStream" class="log-stream">
+                    <div class="text-muted py-2">Log event’leri bekleniyor…</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card dash-export-card border-0 mb-0">
+            <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <p class="small text-muted mb-0 d-none d-sm-block">JSON özet, tablolar ve partition anlık görüntüsü.</p>
+                <button class="btn btn-primary" type="button" id="exportReport">
+                    <svg width="16" height="16" fill="currentColor" class="bi bi-download me-1" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                    </svg>
+                    Raporu dışa aktar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/dashboard.js"></script>
+}

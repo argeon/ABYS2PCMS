@@ -1,0 +1,185 @@
+@page
+@model Migratorv0.Pages.ValidationModel
+@{
+    ViewData["Title"] = "Tablo Doğrulama";
+}
+
+<div class="container-fluid mt-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2>
+                <i class="fas fa-check-double"></i> Tablo Doğrulama ve Karşılaştırma
+            </h2>
+            <p class="text-muted">Migration sonrası kayıt sayıları karşılaştırması ve doğrulama</p>
+        </div>
+    </div>
+
+    <!-- Profile Selection -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-database"></i> Profil Seçimi</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label class="form-label">Migration Profili</label>
+                    <select class="form-select" id="profileSelect" onchange="loadProfile()">
+                        <option value="">Profil seçin...</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Migration Run</label>
+                    <select class="form-select" id="runSelect" onchange="loadRunTables()">
+                        <option value="">Run seçin...</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div id="summarySection" class="d-none">
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h3 class="text-primary" id="totalTables">0</h3>
+                        <p class="mb-0">Toplam Tablo</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h3 class="text-success" id="matchedTables">0</h3>
+                        <p class="mb-0">Eşleşen</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h3 class="text-warning" id="partialTables">0</h3>
+                        <p class="mb-0">Kısmi Eşleşen</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-danger">
+                    <div class="card-body text-center">
+                        <h3 class="text-danger" id="mismatchTables">0</h3>
+                        <p class="mb-0">Eşleşmeyen</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table Comparison Grid -->
+    <div id="comparisonSection" class="card d-none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-table"></i> Tablo Karşılaştırması</h5>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-primary" onclick="validateAll()">
+                    <i class="fas fa-sync"></i> Tümünü Doğrula
+                </button>
+                <button class="btn btn-sm btn-warning" onclick="showDropModal()">
+                    <i class="fas fa-trash"></i> Tabloları Temizle
+                </button>
+                <button class="btn btn-sm btn-success" onclick="showRemigrationModal()">
+                    <i class="fas fa-redo"></i> Yeniden Aktar
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                            <th>Tablo Adı</th>
+                            <th class="text-end">Oracle (Kaynak)</th>
+                            <th class="text-end">MSSQL (Hedef)</th>
+                            <th class="text-end">Fark</th>
+                            <th class="text-end">Eşleşme</th>
+                            <th>Durum</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparisonTableBody">
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">Profil seçin...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Drop Tables Modal -->
+<div class="modal fade" id="dropModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Tabloları Temizle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <strong>DİKKAT!</strong> Bu işlem seçili tabloları MSSQL'den tamamen silecek!
+                </div>
+                <p>Silinecek tablolar:</p>
+                <ul id="dropTablesList"></ul>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="confirmDrop">
+                    <label class="form-check-label" for="confirmDrop">
+                        Tabloları silmek istediğimi onaylıyorum
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-danger" onclick="dropSelectedTables()" id="dropConfirmBtn" disabled>
+                    <i class="fas fa-trash"></i> Tabloları Sil
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Remigration Modal -->
+<div class="modal fade" id="remigrationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-redo"></i> Yeniden Migration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Seçili tablolar için yeniden migration başlatılacak:</p>
+                <ul id="remigrationTablesList"></ul>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="dropBeforeRemigration" checked>
+                    <label class="form-check-label" for="dropBeforeRemigration">
+                        Önce mevcut tabloları sil (önerilen)
+                    </label>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Migration Engine başlatılacak ve wizard'a yönlendirileceksiniz.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success" onclick="startRemigration()">
+                    <i class="fas fa-play"></i> Migration Başlat
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/validation.js"></script>
+}

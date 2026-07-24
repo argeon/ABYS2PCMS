@@ -1,0 +1,194 @@
+@page "/staging/agreement"
+@model MigrationWeb.Pages.Staging.AgreementViewerModel
+@{
+    ViewData["Title"] = "Sözleşme Staging Görüntüleyici";
+}
+
+<link href="~/css/staging.css" rel="stylesheet" />
+
+<div class="staging-viewer">
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <h2 class="mb-1">Sözleşme Staging Görüntüleyici</h2>
+            <p class="text-muted mb-0 small">
+                Tahakkuk → İşlem → Gelir satırı (ABYS benzeri master-detail). <code>MAIN</code> = tüketim tahakkuku.
+            </p>
+        </div>
+        <a href="/" class="btn btn-outline-secondary btn-sm">Panele dön</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label">Sözleşme ID</label>
+                    <input type="number" class="form-control" id="agrId" value="197168" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Staging şema</label>
+                    <input type="text" class="form-control" id="stagingSchema" value="SMS_AUDIT" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Host</label>
+                    <input type="text" class="form-control" id="oracleHost" value="10.32.67.200" />
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">Port</label>
+                    <input type="text" class="form-control" id="oraclePort" value="1521" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Service</label>
+                    <input type="text" class="form-control" id="oracleService" value="test" />
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">User</label>
+                    <input type="text" class="form-control" id="oracleUser" value="SMS" />
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">Şifre</label>
+                    <input type="password" class="form-control" id="oraclePassword" value="sms" />
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">Dönem</label>
+                    <input type="text" class="form-control" id="energyPeriod" value="01" />
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">Firma</label>
+                    <input type="text" class="form-control" id="energyNr" value="001" />
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="button" class="btn btn-outline-info btn-sm" id="btnTest">Test</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnLoad">Yükle</button>
+                </div>
+            </div>
+            <div id="loadStatus" class="small text-muted mt-2"></div>
+            <div id="loadWarnings" class="small text-warning mt-1"></div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="card debt-summary h-100">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Özet Bilgiler</strong>
+                    <span id="debtBadge" class="badge bg-secondary">—</span>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-dark mb-0 summary-kv">
+                        <tbody>
+                            <tr><td>Fatura Borcu</td><td id="kvHasDebt" class="text-end fw-semibold">—</td></tr>
+                            <tr><td>Toplam Borç</td><td id="kvTotalDebt" class="text-end-num">—</td></tr>
+                            <tr><td>Açık borç adedi</td><td id="kvOpenDebt" class="text-end-num">—</td></tr>
+                            <tr><td>Tahakkuk adet</td><td id="kvTahakkuk" class="text-end-num">—</td></tr>
+                            <tr><td>Ödenmiş / Toplam tahakkuk</td><td id="kvPaidTah" class="text-end-num">—</td></tr>
+                            <tr><td>Toplam tahsilat</td><td id="kvPayment" class="text-end-num">—</td></tr>
+                            <tr><td>Emanet (Ledger) alacak</td><td id="kvLedgerCredit" class="text-end-num">—</td></tr>
+                            <tr><td>Recon kayıt</td><td id="kvRecon" class="text-end-num">—</td></tr>
+                        </tbody>
+                    </table>
+                    <div class="border-top px-2 py-2 small" id="abysComparePanel" style="display:none">
+                        <strong class="text-info">ABYS kaynak kıyası</strong>
+                        <table class="table table-sm table-dark mb-0 mt-1 summary-kv">
+                            <thead><tr><th>Metrik</th><th class="text-end">ABYS (kaynak)</th><th class="text-end">Staging</th><th class="text-end">Fark</th></tr></thead>
+                            <tbody id="abysCompareBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header py-2"><strong>İlişki haritası</strong></div>
+                <div class="card-body py-2 small text-secondary">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>1. Tahakkuk</strong> (eski <code>MAIN</code> = tüketim faturası)<br/>
+                            GECIKME / ARTTIRAN ayrı tahakkuk satırları<br/>
+                            <strong>2. İşlem</strong> — borç PT (TAHAKKUK), tahsilat PT (TAHSİLAT)<br/>
+                            <strong>3. Gelir</strong> — INVLINES veya PAYTRANS_INCOME<br/>
+                            <span class="text-warning">EKS</span> = eksilten / iade ·
+                            <span class="text-primary">MHŞ</span> = mahsup / emanet çıkışı ·
+                            <span class="text-info">TKS</span> = taksit
+                        </div>
+                        <div class="col-md-6">
+                            Borç bakiyesi = borç PT <code>PAYABLETOTAL − PAID</code><br/>
+                            Kapalı tahakkuk: <code>CLOSED=1</code> (tam ödendi)<br/>
+                            Ledger <code>STATUS_NET</code> = emanet alacak bakiyesi
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3 staging-nested-card">
+        <div class="card-header d-flex justify-content-between align-items-center py-2 flex-wrap gap-2">
+            <span><strong>Tahakkuk / İşlem / Gelir</strong> <span class="badge bg-secondary" id="invBadge">0</span></span>
+            <span class="small text-muted inv-legend">
+                <span class="inv-legend-item">
+                    <span class="inv-badge inv-badge-eksilten" title="Eksilten / İade">
+                        <svg class="inv-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/><path fill="currentColor" d="M8 4.466V.534a.25.25 0 0 0-.41-.212L5.23 2.308a.25.25 0 0 0 0 .424l2.36 1.986A.25.25 0 0 0 8 4.466"/></svg>
+                        <span class="inv-badge-lbl">EKS</span>
+                    </span>
+                    Eksilten / İade
+                </span>
+                <span class="inv-legend-item">
+                    <span class="inv-badge inv-badge-mahsup" title="Mahsup / Emanet çıkışı">
+                        <svg class="inv-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M1 11.5a.5.5 0 0 0 .5.5h11.793l-3.147 3.146a.5.5 0 0 0 .708.708l4-4a.5.5 0 0 0 0-.708l-4-4a.5.5 0 0 0-.708.708L13.293 11H1.5a.5.5 0 0 0-.5.5m14-7a.5.5 0 0 1-.5.5H2.707l3.147 3.146a.5.5 0 1 1-.708.708l-4-4a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L2.707 4H14.5a.5.5 0 0 1 .5.5"/></svg>
+                        <span class="inv-badge-lbl">MHŞ</span>
+                    </span>
+                    Mahsup
+                </span>
+                <span class="inv-legend-item">
+                    <span class="inv-badge inv-badge-taksit" title="Taksit">
+                        <svg class="inv-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M14 3a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/><path fill="currentColor" d="M2 5.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5"/></svg>
+                        <span class="inv-badge-lbl">TKS</span>
+                    </span>
+                    Taksit
+                </span>
+            </span>
+        </div>
+        <div class="card-body p-0 table-responsive staging-scroll-lg">
+            <div id="nestedInvoiceTree" class="nested-grid-wrap">
+                <p class="text-muted p-3 mb-0">Sözleşme yükleyin.</p>
+            </div>
+        </div>
+        <div class="card-footer small text-muted py-1" id="invFooter">—</div>
+    </div>
+
+    <div class="card staging-detail">
+        <div class="card-header py-2">
+            <ul class="nav nav-tabs card-header-tabs" id="detailTabs" role="tablist">
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPayTrans" type="button">PAYTRANS</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPayIncome" type="button">PAYTRANS_INCOME</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabSpeFee" type="button">SPEFEE</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLedger" type="button">ADVANCE_LEDGER</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLedgerIncome" type="button">ADV_LEDGER_INCOME</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabInstall" type="button">INSTALLMENT_PLAN <span class="badge text-bg-secondary" id="installBadge">0</span></button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabRecon" type="button">RECON</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabInsertSql" type="button">INSERT SQL</button></li>
+            </ul>
+        </div>
+        <div class="card-body p-0 tab-content staging-scroll">
+            <div class="tab-pane fade" id="tabPayTrans"><table class="table table-sm table-dark mb-0 staging-grid" id="tblPayTrans"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabPayIncome"><table class="table table-sm table-dark mb-0 staging-grid" id="tblPayIncome"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabSpeFee"><table class="table table-sm table-dark mb-0 staging-grid" id="tblSpeFee"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabLedger"><table class="table table-sm table-dark mb-0 staging-grid" id="tblLedger"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabLedgerIncome"><table class="table table-sm table-dark mb-0 staging-grid" id="tblLedgerIncome"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabInstall"><table class="table table-sm table-dark mb-0 staging-grid" id="tblInstall"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade show active" id="tabRecon"><table class="table table-sm table-dark mb-0 staging-grid" id="tblRecon"><thead></thead><tbody></tbody></table></div>
+            <div class="tab-pane fade" id="tabInsertSql">
+                <div class="p-2 border-bottom border-secondary d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span class="small text-muted">Hedef: <code id="insertSqlTarget">energy.dbo.LS_001_01_*</code></span>
+                    <button type="button" class="btn btn-outline-light btn-sm" id="btnCopyInsertSql">Panoya kopyala</button>
+                </div>
+                <pre class="insert-sql-panel mb-0" id="insertSqlPanel">Sözleşme yükleyin.</pre>
+            </div>
+        </div>
+        <div class="card-footer small text-muted py-1" id="detailFooter">Tüm sözleşme</div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/staging/agreement-viewer.js"></script>
+}

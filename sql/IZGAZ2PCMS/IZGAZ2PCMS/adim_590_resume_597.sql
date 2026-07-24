@@ -1,0 +1,54 @@
+/* ============================================================
+   FILE : adim_590_resume_597.sql
+   590 IADE INV/MAIN tamam — INVLINES dup fix sonrasi
+   @CLEAN=0 (temizligi tekrarlama)
+   Sonra 597 TAHSILAT
+   613 SKIP
+   ============================================================ */
+USE energy;
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @Msg NVARCHAR(400);
+DECLARE @tAll DATETIME2(3) = SYSDATETIME();
+DECLARE @t0 DATETIME2(3);
+
+SET @Msg = N'===== 590 RESUME (@CLEAN=0) + 597 START ' + CONVERT(VARCHAR(30), @tAll, 121) + N' =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+RAISERROR('NOTE: 613 SKIP; INVLINES ABYS_ID dup skip in 590', 0, 1) WITH NOWAIT;
+
+SET @t0 = SYSDATETIME();
+SET @Msg = N'===== 590 EKSILTEN RESUME =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+EXEC energy.dbo.SP_MIGRATE_EKSILTEN_OVERLAY_AGR
+    @AGR_ID = NULL, @CLEAN = 0, @DEBUG = 1;
+
+SET @Msg = N'===== 590 DONE sec=' + CAST(DATEDIFF(SECOND, @t0, SYSDATETIME()) AS VARCHAR(20)) + N' =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+SET @t0 = SYSDATETIME();
+SET @Msg = N'===== 597 TAHSILAT START =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+EXEC energy.dbo.SP_MIGRATE_TAHSILAT_OVERLAY_AGR
+    @AGR_ID = NULL, @CLEAN = 1, @DEBUG = 1;
+
+SET @Msg = N'===== 597 DONE sec=' + CAST(DATEDIFF(SECOND, @t0, SYSDATETIME()) AS VARCHAR(20)) + N' =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+SET @Msg = N'===== 590+597 DONE total_sec='
+         + CAST(DATEDIFF(SECOND, @tAll, SYSDATETIME()) AS VARCHAR(20))
+         + N' | 613 SKIPPED =====';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+SELECT 'INV' K, COUNT_BIG(*) N FROM dbo.LS_005_01_INVOICE WITH (NOLOCK)
+UNION ALL
+SELECT 'PAY', COUNT_BIG(*) FROM dbo.LS_005_01_PAYTRANS WITH (NOLOCK) WHERE ISNULL(IOCODE,0)=1
+UNION ALL
+SELECT 'OV_PAY_SRC', COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_PAY_PT WITH (NOLOCK)
+UNION ALL
+SELECT 'OV_IADE_SRC', COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_IADE_INVOICE WITH (NOLOCK);
+GO

@@ -1,0 +1,8 @@
+{
+  "surface": "prod-sql",
+  "defaultMaxParallel": 1,
+  "stages": [
+    { "id": "PROD_MANUAL_GATE", "name": "PROD şema kontrolü (manuel)", "domain": "OPS", "kind": "Manual", "sortOrder": 10, "parallelSafe": true },
+    { "id": "PROD_UPLOAD_PLACEHOLDER", "name": "PROD script yükleyin", "domain": "OPS", "kind": "Manual", "sortOrder": 20, "parallelSafe": true }
+  ]
+}

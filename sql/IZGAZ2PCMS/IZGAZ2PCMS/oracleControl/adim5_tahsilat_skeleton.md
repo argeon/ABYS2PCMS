@@ -1,0 +1,32 @@
+-- =============================================================================
+-- ADIM 5 — Tahsilat overlay (PAYTRANS zinciri)
+-- =============================================================================
+-- Siralama:
+--   1) Adim4a eksilten PASS (IADE + KISMI)
+--   2) Bu dilim:
+--        - TYPE=101 TAHSILAT fisi (LS_OV_TAH_INVOICE) + PAYTRANS IOCODE=1
+--          INVOICEREF = PAY.LREF (MAIN borca yazilmaz — join ciftlenmesin)
+--          CROSSREF = borc PT.LREF; mahsup PAYTYPE=10 OV_KIND=MAHSUP
+--        - CROSSREF = borc PT.LREF (Adim3; Oracle'da MAIN_LREF, energy resolve)
+--        - MAIN PAID / CLOSED = SUM(tahsilat+mahsup)
+--        - TAM+onceki tahsilat/mahsup → CancelInvoices (R31)
+--            (CreateReverse IADE_PT yazilmaz / silinir — cift ALACAK olmasin;
+--             CANCEL_PAY.CROSSREF = MAIN borc PT)
+--        - LS_OV_MAHSUP_SRC / LS_OV_MAHSUP_CLOSED
+--            (emanet REF_DEPOSIT_ACCOUNT_ID; 1 emanet → N fatura;
+--             EXPLAIN_MARK: MAHSUP KAPAMA | MAHSUP+TAHSILAT KAPAMA)
+--        - LS_OV_TAH_LOG (NO_XREF / PAY_CANCELED / MAIN_MISSING / DEBT_PARTIAL)
+--   3) Hariç: emanet / alacaklandirma / TAHSILAT fatura
+--
+-- Dosyalar:
+--   oracleCTAS/LS_TAHSILAT_OVERLAY.sql
+--   597_TAHSILAT_OVERLAY__pilot_agr.sql
+--   oracleControl/adim5_tahsilat_gate.sql
+--
+-- Calistirma:
+--   1) Oracle: MIG_PARAM_seed.sql (veya LS_INVOICE.sql) — coklu AGR
+--   2) Oracle: LS_TAHSILAT_OVERLAY.sql
+--   3) Dump LS_OV_PAY_* / CANCEL_* / MAHSUP_* / LS_OV_TAH_LOG → izgazMGR
+--   4) Energy: adim_multi_agr_pilot_run.sql
+--      veya tek AGR: EXEC dbo.SP_MIGRATE_TAHSILAT_OVERLAY_AGR @AGR_ID=197168, @CLEAN=1, @DEBUG=1
+-- =============================================================================

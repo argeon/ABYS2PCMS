@@ -1,0 +1,148 @@
+================================================================================
+PROD SIFIRDAN AKTARIM — MANUEL PLAN (GREENFIELD)
+BASLANGIC = ORACLE CTAS (bastan uretim) | OTOMASYON YOK | hotfix ana yol YOK
+================================================================================
+Host MSSQL: PG-098 local (BT100 remote YOK) | Watch PID 20188
+Oracle: MIGRATION + SMS | Paket: oracleCTAS/prod2/
+Log (energy'ye gelince): MIG_STEP_LOG
+Delta plan: MANUAL_RUN_PLAN.txt — BU DOSYA DEGIL
+
+AKIS (ozet)
+-----------
+1) CTAS bastan (O0 → O50)     ← SIMDI BURADAN
+2) Dump → izgazMGR
+3) Energy index + 571/581/575 + 590/597
+4) Kontrol + AFL FRK + (613 ops)
+
+KURAL
+-----
+1) Her CTAS/adim TEK TEK sqlplus — 00_run_all KULLANMA
+2) Gate FAIL → dur
+3) Hotfix 03/04 sifirdanda YOK (kodda zaten var)
+4) Sifirdanda O30 FULL (31_ONLY degil)
+5) 613 en sonda, ayri karar
+
+PERF
+----
+- Oracle PARALLEL sadece CTAS
+- Gate hafif; FAIL olmadan dump yok
+- Energy: 590 sonra 597; ilk @CLEAN=1
+
+================================================================================
+ADIM 1 — ORACLE CTAS BASTAN (sqlplus, prod2/)
+================================================================================
+Klasor: oracleCTAS/prod2/
+Onceki MIGRATION LS_* / LS_OV_* varsa: bu adimlar DROP+CTAS ile yeniler.
+
+--- Session ---
+[ ] O0   00_session_parallel.sql                  STEP=O0   ★ ILK
+[ ] O0b  00_mig_param_full.sql                    STEP=O0b
+
+--- Tahakkuk cekirdek ---
+[ ] O10  10_stg_inv_acc_inc.sql                   STEP=O10
+[ ] O11  11_ls_invoice.sql                        STEP=O11
+         Gate: SRC≈TGT, BAD_LREF=0
+[ ] O12  12_ls_invlines.sql                       STEP=O12
+         Gate: orphan 0
+[ ] O13  13_ls_mig_agr_list.sql                   STEP=O13
+[ ] O14  14_ls_debt_paytrans.sql                  STEP=O14
+
+--- Eksilten ---
+[ ] O20  20_ls_eksilten_overlay.sql               STEP=O20
+[ ] O27  27_gate_eksilten.sql                     STEP=O27
+         PASS: TAM=IADE=IADE_PT; KISMI_HDR=KISMI_PT
+
+--- Tahsilat (full) ---
+[ ] O30  30_ls_tahsilat_overlay.sql               STEP=O30
+[ ] O40  40_ls_tahsilat_log.sql                   STEP=O40  (ops)
+[ ] O41  41_gate_tahsilat.sql                     STEP=O41
+
+--- AFL ---
+[ ] O50  50_ls_afl_open_debt.sql                  STEP=O50
+
+CTAS BITTI → dump (Adim 2). Energy'ye gecme.
+
+================================================================================
+ADIM 2 — DUMP → izgazMGR
+================================================================================
+[ ] D1  LS_INVOICE, LS_INVLINES
+[ ] D2  LS_MIG_AGR_LIST, LS_DEBT_PAYTRANS
+[ ] D3  LS_OV_* eksilten (+ KISMI_PAYTRANS)
+[ ] D4  LS_OV_* tahsilat (30 ciktilari)
+[ ] D5  LS_AFL_OPEN_DEBT
+
+================================================================================
+ADIM 3 — ENERGY (CTAS+dump SONRASI)
+================================================================================
+[ ] L0   00_mig_step_log__setup.sql               STEP=L0  (bir kez)
+[ ] E0   00_pre_indexes.sql                       STEP=E0
+[ ] E570 570 setup / E574 / E580 / E10 / E20 deploy
+[ ] E571 INVOICE → E581 INVLINES → E575 borç PT
+[ ] E590 @CLEAN=1 → E597 @CLEAN=1
+[ ] E60 / E70 → E91 AFL FRK → (E80 613 ops)
+
+================================================================================
+ADIM 3 DETAY — ENERGY
+================================================================================
+
+[ ] L0   prodEnergy/00_mig_step_log__setup.sql    STEP=L0
+[ ] E0   prodEnergy/00_pre_indexes.sql            STEP=E0
+
+--- Onkosul: LS_005_01_AGR dolu olmali (590 wiring / OWNERREF) ---
+[ ] EAGR sozlesme (AGR) migrate — plan disi ayri paket; 571 ONCESI kontrol
+         SELECT COUNT(*) FROM energy.dbo.LS_005_01_AGR WHERE ABYS_ID IS NOT NULL;
+
+--- Setup SP ---
+[ ] E570 570_INVOICE__setup.sql                   STEP=E570
+[ ] E574 574_INVOICE_DEBT_PAYTRANS__setup.sql     STEP=E574
+[ ] E580 580_INVLINES__setup.sql                  STEP=E580
+[ ] E10  prodEnergy/10_590 deploy                 STEP=E10
+[ ] E20  prodEnergy/20_597 deploy                 STEP=E20
+
+--- Adim3 ---
+[ ] E571 SP_MIGRATE_LS005_INVOICE @RESUME=0      STEP=E571
+         HARD_RESET politikasi onceden net
+[ ] E573 573_INVOICE__check.sql                   STEP=E573
+[ ] E581 581_INVLINES__migrate.sql                STEP=E581
+         tinyint ~16K Known Issue — logla
+[ ] E575 SP_MIGRATE_LS005_DEBT_PAYTRANS           STEP=E575
+         Tercih: energy 575 (O14 dump opsiyonel alternatif; ikisini birden yapma)
+[ ] E577 577 check                                STEP=E577
+
+--- Overlay ---
+[ ] E590 @CLEAN=1 @DEBUG=1                        STEP=E590
+[ ] E597 @CLEAN=1 @DEBUG=1 (ilk); resume @CLEAN=0 STEP=E597
+
+--- Kontrol / FRK / taksit ---
+[ ] E60  60_adim_post_mig_kontrol.sql             STEP=E60
+[ ] E70  70_rapor_...gelir.sql                    STEP=E70
+[ ] E91  90_afl_frk/91_afl_frk_compare_log.sql    STEP=E91
+[ ] E80  80_613... @RUN_FULL=0 sonra istege 1     STEP=E80
+
+================================================================================
+SIRA OZETI (sifirdan) — CTAS ILE BASLAR
+================================================================================
+O0 O0b O10 O11 O12 O13 O14
+→ O20 O27 O30 O40? O41 O50
+→ D1..D5
+→ L0 E0 EAGR? E570 E574 E580 E10 E20
+→ E571 → E581 → E575
+→ E590 → E597
+→ E60 E70 E91 → (E80)
+
+================================================================================
+SIFIRDANDA YAPMA
+================================================================================
+- hotfix/03, /04 ana yol (yalniz kaza sonrasi yama)
+- 31_ONLY yerine full O30 (Cancel/MAHSUP eksik kalmasin)
+- 597’yi 590’dan once
+- 613’u 597 ortasinda
+- 00_run_all.sql / 30_adim_590_597_full_run.sql otomatik zincir
+- BT100 remote sqlcmd
+
+================================================================================
+DELTA vs GREENFIELD
+================================================================================
+Delta (mevcut energy duzeltme):  MANUAL_RUN_PLAN.txt
+Sifirdan cutover:                BU DOSYA
+================================================================================

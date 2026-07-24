@@ -1,0 +1,16 @@
+{
+  "surface": "ctas",
+  "defaultMaxParallel": 2,
+  "stages": [
+    { "id": "CTAS_LS_AGREEMENT", "name": "LS_AGREEMENT", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_AGREEMENT.sql", "sortOrder": 10, "estimatedRows": 90000000, "writes": ["MIGRATION.LS_AGREEMENT"], "slotCost": 2, "parallelSafe": true },
+    { "id": "CTAS_LS_ITEMS", "name": "LS_ITEMS", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_ITEMS.sql", "sortOrder": 20, "estimatedRows": 75000000, "writes": ["MIGRATION.LS_ITEMS"], "slotCost": 2, "parallelSafe": true },
+    { "id": "CTAS_LS_AGR_DEVICE", "name": "LS_AGR_DEVICE", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_AGR_DEVICE.sql", "sortOrder": 30, "estimatedRows": 300000000, "writes": ["MIGRATION.LS_AGR_DEVICE"], "slotCost": 2, "parallelSafe": true },
+    { "id": "CTAS_LS_AGR_GUARANTY", "name": "LS_AGR_GUARANTY", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_AGR_GUARANTY.sql", "sortOrder": 40, "estimatedRows": 75000000, "writes": ["MIGRATION.LS_AGR_GUARANTY"], "parallelSafe": true },
+    { "id": "CTAS_LS_AGR_CLOSE", "name": "LS_AGR_CLOSE", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_AGR_CLOSE.sql", "sortOrder": 50, "writes": ["MIGRATION.LS_AGR_CLOSE"], "parallelSafe": true },
+    { "id": "CTAS_LS_AGR_SERVQ", "name": "LS_AGR_SERVQ", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_AGR_SERVQ.sql", "sortOrder": 60, "writes": ["MIGRATION.LS_AGR_SERVQ"], "parallelSafe": true },
+    { "id": "CTAS_LS_FITMENTFEE", "name": "LS_FITMENTFEE", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_FITMENTFEE.sql", "sortOrder": 70, "writes": ["MIGRATION.LS_FITMENT_FEE"], "parallelSafe": true },
+    { "id": "CTAS_FLAT", "name": "FLAT", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/FLAT.sql", "sortOrder": 80, "writes": ["LS_FLAT"], "parallelSafe": true },
+    { "id": "CTAS_LS_READING", "name": "LS_READING", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/LS_READING.sql", "sortOrder": 90, "writes": ["SMS.STG_RD_SYNC_USER"], "slotCost": 2, "parallelSafe": true },
+    { "id": "CTAS_ITEMS", "name": "ITEMS", "domain": "CTAS", "kind": "OracleCtas", "path": "oracleCTAS/ITEMS.sql", "sortOrder": 100, "writes": ["ITEMS"], "parallelSafe": true }
+  ]
+}

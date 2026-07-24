@@ -1,0 +1,510 @@
+/* ============================================================
+   FILE : adim_post_mig_kontrol.sql
+   FAZ  : Full energy aktarim SONRASI gate (izgazMGR ↔ energy)
+
+   Onkosul:
+     - Katmanlar bitmis (571/581/575; istege 611/590/597)
+     - adim3_verify_indexes.sql (PT INVOICEREF vb.)
+
+   Calistir:
+     sqlcmd ... -d energy -i adim_post_mig_kontrol.sql
+
+   Bilinçli sinirlar:
+     - Full NOT EXISTS tarama YOK (~350M IL)
+     - Eksik/orphan: SAMPLE_N ornek + canary derin kontrol
+     - Overlay sayim farki SOFT (rapor); Oracle gate ayri
+
+   Canary referans (AGR 197168):
+     INV=259  SUM=109843.94  DEBT_PT=259  LINES~1277
+   ============================================================ */
+USE energy;
+GO
+
+SET NOCOUNT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+DECLARE @CANARY_AGR BIGINT = 197168;
+DECLARE @Eps        FLOAT  = 0.01;
+DECLARE @SAMPLE_N   INT    = 100000;
+DECLARE @DO_OVERLAY BIT    = 1;
+DECLARE @t0         DATETIME2(3) = SYSDATETIME();
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121) + ' | adim_post_mig_kontrol basladi';
+
+/* ============================================================
+   1) MIG_RUN durumu
+   ============================================================ */
+PRINT '=== 1) MIG_RUN ===';
+
+SELECT
+    MIGRATION_CODE,
+    STATUS,
+    CONVERT(VARCHAR(19), STARTED_AT, 120) AS started,
+    CONVERT(VARCHAR(19), FINISHED_AT, 120) AS finished,
+    INSERTED_COUNT,
+    SOURCE_ROW_COUNT,
+    LAST_BRIDGE_KEY,
+    CASE WHEN SOURCE_ROW_COUNT > 0
+         THEN CAST(100.0 * INSERTED_COUNT / SOURCE_ROW_COUNT AS DECIMAL(6,1))
+         ELSE NULL END AS pct,
+    CASE
+        WHEN STATUS IN ('COMPLETED', 'COMPLETED_WITH_ERRORS')
+             AND (SOURCE_ROW_COUNT IS NULL OR INSERTED_COUNT >= SOURCE_ROW_COUNT)
+            THEN 'PASS'
+        WHEN STATUS = 'RUNNING' THEN 'RUNNING'
+        ELSE 'FAIL'
+    END AS GATE
+FROM (
+    SELECT
+        r.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY r.MIGRATION_CODE
+            ORDER BY r.STARTED_AT DESC
+        ) AS rn
+    FROM energy.dbo.MIG_RUN r WITH (NOLOCK)
+    WHERE r.MIGRATION_CODE IN (
+        'LS_005_01_INVOICE',
+        'LS_005_01_INVLINES',
+        'LS_005_01_PAYTRANS',
+        'LS_005_01_DEBT_PAYTRANS',
+        'LS_005_01_INSTALLMENT_PLAN'
+    )
+) x
+WHERE rn = 1
+ORDER BY MIGRATION_CODE;
+
+/* ============================================================
+   2) Global sayim gate (sert)
+   ============================================================ */
+PRINT '=== 2) GLOBAL COUNT GATE ===';
+
+DECLARE @MGR_INV     BIGINT;
+DECLARE @EN_INV      BIGINT;
+DECLARE @MGR_IL      BIGINT;
+DECLARE @EN_IL       BIGINT;
+DECLARE @MGR_INV_IO0 BIGINT;
+DECLARE @EN_DEBT_PT  BIGINT;
+
+SELECT @MGR_INV = COUNT_BIG(*)
+FROM izgazMGR.dbo.LS_INVOICE WITH (NOLOCK);
+
+SELECT @EN_INV = COUNT_BIG(*)
+FROM energy.dbo.LS_005_01_INVOICE WITH (NOLOCK)
+WHERE ABYS_ID IS NOT NULL;
+
+IF OBJECT_ID('izgazMGR.dbo.LS_INVLINES', 'U') IS NOT NULL
+    SELECT @MGR_IL = COUNT_BIG(*)
+    FROM izgazMGR.dbo.LS_INVLINES WITH (NOLOCK);
+ELSE
+    SET @MGR_IL = NULL;
+
+IF OBJECT_ID('energy.dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+    SELECT @EN_IL = COUNT_BIG(*)
+    FROM energy.dbo.LS_005_01_INVLINES WITH (NOLOCK)
+    WHERE ABYS_ID IS NOT NULL;
+ELSE
+    SET @EN_IL = NULL;
+
+SELECT @MGR_INV_IO0 = COUNT_BIG(*)
+FROM izgazMGR.dbo.LS_INVOICE WITH (NOLOCK)
+WHERE ISNULL(IOCODE, 0) = 0;
+
+SELECT @EN_DEBT_PT = COUNT_BIG(*)
+FROM energy.dbo.LS_005_01_PAYTRANS WITH (NOLOCK)
+WHERE ISNULL(IOCODE, 0) = 0
+  AND ABYS_ID IS NOT NULL;
+
+SELECT * FROM (
+    SELECT
+        'INVOICE' AS LAYER,
+        @MGR_INV AS MGR_CNT,
+        @EN_INV  AS EN_CNT,
+        @EN_INV - @MGR_INV AS DELTA,
+        CASE WHEN @MGR_INV = @EN_INV THEN 'PASS' ELSE 'FAIL' END AS GATE
+    UNION ALL
+    SELECT
+        'INVLINES',
+        @MGR_IL,
+        @EN_IL,
+        CASE WHEN @MGR_IL IS NULL OR @EN_IL IS NULL THEN NULL ELSE @EN_IL - @MGR_IL END,
+        CASE
+            WHEN @MGR_IL IS NULL OR @EN_IL IS NULL THEN 'SKIP'
+            WHEN @MGR_IL = @EN_IL THEN 'PASS'
+            ELSE 'FAIL'
+        END
+    UNION ALL
+    SELECT
+        'DEBT_PT_vs_INV_IO0',
+        @MGR_INV_IO0,
+        @EN_DEBT_PT,
+        @EN_DEBT_PT - @MGR_INV_IO0,
+        CASE WHEN @MGR_INV_IO0 = @EN_DEBT_PT THEN 'PASS' ELSE 'FAIL' END
+) g
+ORDER BY CASE LAYER
+    WHEN 'INVOICE' THEN 1
+    WHEN 'INVLINES' THEN 2
+    ELSE 3
+END;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + ' | count gate ms=' + CAST(DATEDIFF(MILLISECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+
+/* ============================================================
+   3) Tutar ozeti (yumuşak / rapor)
+   ============================================================ */
+PRINT '=== 3) AMOUNT SUMMARY (soft) ===';
+
+DECLARE @MGR_INV_SUM FLOAT;
+DECLARE @EN_INV_SUM  FLOAT;
+DECLARE @MGR_IL_SUM  FLOAT;
+DECLARE @EN_IL_SUM   FLOAT;
+
+SELECT @MGR_INV_SUM = SUM(CAST(PAYABLETOTAL AS FLOAT))
+FROM izgazMGR.dbo.LS_INVOICE WITH (NOLOCK);
+
+SELECT @EN_INV_SUM = SUM(CAST(PAYABLETOTAL AS FLOAT))
+FROM energy.dbo.LS_005_01_INVOICE WITH (NOLOCK)
+WHERE ABYS_ID IS NOT NULL;
+
+IF OBJECT_ID('izgazMGR.dbo.LS_INVLINES', 'U') IS NOT NULL
+    SELECT @MGR_IL_SUM = SUM(CAST(GRANDTOTAL AS FLOAT))
+    FROM izgazMGR.dbo.LS_INVLINES WITH (NOLOCK);
+ELSE
+    SET @MGR_IL_SUM = NULL;
+
+IF OBJECT_ID('energy.dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+    SELECT @EN_IL_SUM = SUM(CAST(GRANDTOTAL AS FLOAT))
+    FROM energy.dbo.LS_005_01_INVLINES WITH (NOLOCK)
+    WHERE ABYS_ID IS NOT NULL;
+ELSE
+    SET @EN_IL_SUM = NULL;
+
+SELECT
+    'INVOICE_PAYABLE' AS METRIC,
+    ROUND(@MGR_INV_SUM, 2) AS MGR_SUM,
+    ROUND(@EN_INV_SUM, 2)  AS EN_SUM,
+    ROUND(ISNULL(@EN_INV_SUM, 0) - ISNULL(@MGR_INV_SUM, 0), 2) AS DELTA,
+    CASE WHEN ABS(ISNULL(@MGR_INV_SUM, 0) - ISNULL(@EN_INV_SUM, 0)) <= @Eps
+         THEN 'PASS' ELSE 'FAIL' END AS G_AMT
+UNION ALL
+SELECT
+    'INVLINES_GRAND',
+    ROUND(@MGR_IL_SUM, 2),
+    ROUND(@EN_IL_SUM, 2),
+    CASE WHEN @MGR_IL_SUM IS NULL OR @EN_IL_SUM IS NULL THEN NULL
+         ELSE ROUND(@EN_IL_SUM - @MGR_IL_SUM, 2) END,
+    CASE
+        WHEN @MGR_IL_SUM IS NULL OR @EN_IL_SUM IS NULL THEN 'SKIP'
+        WHEN ABS(@MGR_IL_SUM - @EN_IL_SUM) <= @Eps THEN 'PASS'
+        ELSE 'FAIL'
+    END;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + ' | amount ms=' + CAST(DATEDIFF(MILLISECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+
+/* ============================================================
+   4) Butunluk ornekleri (rapor; full scan yok)
+   ============================================================ */
+PRINT '=== 4) INTEGRITY SAMPLES ===';
+
+-- 4a) LREF <> ABYS_ID
+SELECT COUNT_BIG(*) AS INV_LREF_NE_ABYS_ID
+FROM energy.dbo.LS_005_01_INVOICE WITH (NOLOCK)
+WHERE ABYS_ID IS NOT NULL
+  AND LREF <> ABYS_ID;
+
+-- 4b) DEBT PT eksik ornek (IOCODE=0)
+SELECT COUNT_BIG(*) AS MISSING_DEBT_PT_SAMPLE
+FROM (
+    SELECT TOP (@SAMPLE_N) inv.LREF
+    FROM energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+    WHERE ISNULL(inv.IOCODE, 0) = 0
+      AND inv.ABYS_ID IS NOT NULL
+      AND inv.LREF BETWEEN 1 AND 2147483647
+    ORDER BY inv.LREF
+) s
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+    WHERE pt.INVOICEREF = s.LREF
+      AND ISNULL(pt.IOCODE, 0) = 0
+      AND pt.ABYS_ID IS NOT NULL
+);
+
+-- 4c) Cift DEBT PT (TOP 50)
+SELECT TOP 50
+    pt.INVOICEREF,
+    COUNT_BIG(*) AS DEBT_PT_CNT
+FROM energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+WHERE ISNULL(pt.IOCODE, 0) = 0
+  AND pt.ABYS_ID IS NOT NULL
+GROUP BY pt.INVOICEREF
+HAVING COUNT_BIG(*) > 1
+ORDER BY DEBT_PT_CNT DESC;
+
+DECLARE @DUP_DEBT_PT BIGINT;
+SELECT @DUP_DEBT_PT = COUNT_BIG(*)
+FROM (
+    SELECT pt.INVOICEREF
+    FROM energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+    WHERE ISNULL(pt.IOCODE, 0) = 0
+      AND pt.ABYS_ID IS NOT NULL
+    GROUP BY pt.INVOICEREF
+    HAVING COUNT_BIG(*) > 1
+) d;
+
+SELECT @DUP_DEBT_PT AS DUP_DEBT_PT_GROUPS,
+       CASE WHEN @DUP_DEBT_PT = 0 THEN 'PASS' ELSE 'FAIL' END AS G_DUP_DEBT;
+
+-- 4d) INVLINES orphan ornek (fatura var, satir yok) — yalniz IL tablosu varsa
+IF OBJECT_ID('energy.dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+BEGIN
+    SELECT COUNT_BIG(*) AS INV_WITHOUT_LINES_SAMPLE
+    FROM (
+        SELECT TOP (@SAMPLE_N) inv.LREF
+        FROM energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        WHERE inv.ABYS_ID IS NOT NULL
+          AND inv.LREF BETWEEN 1 AND 2147483647
+        ORDER BY inv.LREF
+    ) s
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM energy.dbo.LS_005_01_INVLINES l WITH (NOLOCK)
+        WHERE l.INVOICEREF = s.LREF
+          AND l.ABYS_ID IS NOT NULL
+    );
+END
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + ' | samples ms=' + CAST(DATEDIFF(MILLISECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+
+/* ============================================================
+   5) Canary (sert) — AGR @CANARY_AGR
+   ============================================================ */
+PRINT '=== 5) CANARY AGR=' + CAST(@CANARY_AGR AS VARCHAR(20)) + ' ===';
+
+IF OBJECT_ID('tempdb..#K') IS NOT NULL DROP TABLE #K;
+CREATE TABLE #K (
+    LREF INT NOT NULL PRIMARY KEY,
+    PAYABLETOTAL FLOAT NULL,
+    IOCODE INT NULL
+);
+
+INSERT INTO #K (LREF, PAYABLETOTAL, IOCODE)
+SELECT
+    CAST(s.ABYS_ACTION_ID AS INT),
+    CAST(s.PAYABLETOTAL AS FLOAT),
+    ISNULL(CAST(s.IOCODE AS INT), 0)
+FROM izgazMGR.dbo.LS_INVOICE s WITH (NOLOCK)
+WHERE s.ABYS_AGREEMENT_ID = @CANARY_AGR
+  AND s.ABYS_ACTION_ID BETWEEN 1 AND 2147483647;
+
+DECLARE @C_MGR_INV BIGINT, @C_EN_INV BIGINT, @C_EN_PT BIGINT;
+DECLARE @C_MGR_SUM FLOAT,  @C_EN_SUM FLOAT,  @C_PT_SUM FLOAT;
+DECLARE @C_IO0_SUM FLOAT;
+DECLARE @C_MISS_PT BIGINT;
+DECLARE @C_MGR_IL  BIGINT, @C_EN_IL BIGINT;
+DECLARE @C_MGR_IL_SUM FLOAT, @C_EN_IL_SUM FLOAT;
+
+SELECT @C_MGR_INV = COUNT(*), @C_MGR_SUM = SUM(PAYABLETOTAL) FROM #K;
+SELECT @C_IO0_SUM = SUM(PAYABLETOTAL) FROM #K WHERE IOCODE = 0;
+
+SELECT @C_EN_INV = COUNT(*), @C_EN_SUM = SUM(CAST(t.PAYABLETOTAL AS FLOAT))
+FROM #K k
+INNER JOIN energy.dbo.LS_005_01_INVOICE t WITH (NOLOCK)
+    ON t.LREF = k.LREF;
+
+SELECT @C_EN_PT = COUNT(*), @C_PT_SUM = SUM(CAST(pt.PAYABLETOTAL AS FLOAT))
+FROM #K k
+INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+    ON pt.INVOICEREF = k.LREF
+WHERE ISNULL(pt.IOCODE, 0) = 0
+  AND pt.ABYS_ID IS NOT NULL
+  AND k.IOCODE = 0;
+
+-- canary: IOCODE=0 faturalarda PT eksik
+SELECT @C_MISS_PT = COUNT(*)
+FROM #K k
+WHERE k.IOCODE = 0
+  AND NOT EXISTS (
+        SELECT 1
+        FROM energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        WHERE pt.INVOICEREF = k.LREF
+          AND ISNULL(pt.IOCODE, 0) = 0
+          AND pt.ABYS_ID IS NOT NULL
+      );
+
+IF OBJECT_ID('izgazMGR.dbo.LS_INVLINES', 'U') IS NOT NULL
+    SELECT @C_MGR_IL = COUNT(*), @C_MGR_IL_SUM = SUM(CAST(l.GRANDTOTAL AS FLOAT))
+    FROM izgazMGR.dbo.LS_INVLINES l WITH (NOLOCK)
+    WHERE EXISTS (SELECT 1 FROM #K k WHERE k.LREF = l.INVOICEREF);
+ELSE
+    SELECT @C_MGR_IL = NULL, @C_MGR_IL_SUM = NULL;
+
+IF OBJECT_ID('energy.dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+    SELECT @C_EN_IL = COUNT(*), @C_EN_IL_SUM = SUM(CAST(l.GRANDTOTAL AS FLOAT))
+    FROM energy.dbo.LS_005_01_INVLINES l WITH (NOLOCK)
+    WHERE l.ABYS_ID IS NOT NULL
+      AND EXISTS (SELECT 1 FROM #K k WHERE k.LREF = l.INVOICEREF);
+ELSE
+    SELECT @C_EN_IL = NULL, @C_EN_IL_SUM = NULL;
+
+DECLARE @IO0_CNT BIGINT;
+SELECT @IO0_CNT = COUNT(*) FROM #K WHERE IOCODE = 0;
+
+-- Canary PASS: INV cnt, PT=IO0, tutarlar, lines (varsa)
+DECLARE @CANARY_PASS BIT = 0;
+IF @C_MGR_INV = @C_EN_INV
+   AND @C_EN_PT = @IO0_CNT
+   AND @C_MISS_PT = 0
+   AND ABS(ISNULL(@C_MGR_SUM, 0) - ISNULL(@C_EN_SUM, 0)) <= @Eps
+   AND ABS(ISNULL(@C_IO0_SUM, 0) - ISNULL(@C_PT_SUM, 0)) <= @Eps
+   AND (
+        @C_MGR_IL IS NULL OR @C_EN_IL IS NULL
+        OR (@C_MGR_IL = @C_EN_IL AND ABS(ISNULL(@C_MGR_IL_SUM, 0) - ISNULL(@C_EN_IL_SUM, 0)) <= @Eps)
+       )
+    SET @CANARY_PASS = 1;
+
+SELECT
+    @CANARY_AGR AS AGR_ID,
+    @C_MGR_INV AS MGR_INV,
+    @C_EN_INV  AS EN_INV,
+    @IO0_CNT   AS MGR_IO0,
+    @C_EN_PT   AS EN_DEBT_PT,
+    ROUND(@C_MGR_SUM, 2) AS MGR_SUM,
+    ROUND(@C_EN_SUM, 2)  AS EN_SUM,
+    ROUND(@C_PT_SUM, 2)  AS EN_PT_SUM,
+    @C_MISS_PT AS MISSING_DEBT_PT,
+    @C_MGR_IL  AS MGR_LINES,
+    @C_EN_IL   AS EN_LINES,
+    ROUND(@C_MGR_IL_SUM, 2) AS MGR_LINE_SUM,
+    ROUND(@C_EN_IL_SUM, 2)  AS EN_LINE_SUM,
+    CASE WHEN @CANARY_PASS = 1 THEN 'PASS' ELSE 'FAIL' END AS OVERALL_CANARY;
+
+DROP TABLE #K;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + ' | canary ms=' + CAST(DATEDIFF(MILLISECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+
+/* ============================================================
+   6) Installment / overlay ozet (SOFT)
+   ============================================================ */
+IF @DO_OVERLAY = 1
+BEGIN
+    PRINT '=== 6) OVERLAY / INSTALLMENT (soft) ===';
+
+    DECLARE @MGR_INST BIGINT = NULL, @EN_INST BIGINT = NULL;
+    DECLARE @MGR_PAY  BIGINT = NULL, @EN_PAY  BIGINT = NULL;
+    DECLARE @MGR_IADE BIGINT = NULL;
+
+    IF OBJECT_ID('izgazMGR.dbo.CS_INSTALLMENT_PLAN', 'U') IS NOT NULL
+    BEGIN
+        IF OBJECT_ID('izgazMGR.dbo.CS_INSTALLMENT', 'U') IS NOT NULL
+            SELECT @MGR_INST = COUNT_BIG(*)
+            FROM izgazMGR.dbo.CS_INSTALLMENT_PLAN ip WITH (NOLOCK)
+            WHERE EXISTS (
+                SELECT 1 FROM izgazMGR.dbo.CS_INSTALLMENT ins WITH (NOLOCK)
+                WHERE ins.ID = ip.INSTALLMENT_ID
+            )
+              AND ip.ID BETWEEN 1 AND 2147483647;
+        ELSE
+            SELECT @MGR_INST = COUNT_BIG(*)
+            FROM izgazMGR.dbo.CS_INSTALLMENT_PLAN ip WITH (NOLOCK)
+            WHERE ip.ID BETWEEN 1 AND 2147483647;
+    END
+
+    IF OBJECT_ID('energy.dbo.LS_005_01_INSTALLMENT_PLAN', 'U') IS NOT NULL
+        SELECT @EN_INST = COUNT_BIG(*)
+        FROM energy.dbo.LS_005_01_INSTALLMENT_PLAN WITH (NOLOCK)
+        WHERE ABYS_ID IS NOT NULL;
+
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_PAY_PT', 'U') IS NOT NULL
+        SELECT @MGR_PAY = COUNT_BIG(*)
+        FROM izgazMGR.dbo.LS_OV_PAY_PT WITH (NOLOCK);
+
+    SELECT @EN_PAY = COUNT_BIG(*)
+    FROM energy.dbo.LS_005_01_PAYTRANS WITH (NOLOCK)
+    WHERE ISNULL(IOCODE, 0) = 1;
+
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_IADE_INVOICE', 'U') IS NOT NULL
+        SELECT @MGR_IADE = COUNT_BIG(*)
+        FROM izgazMGR.dbo.LS_OV_IADE_INVOICE WITH (NOLOCK);
+
+    SELECT * FROM (
+        SELECT
+            'INSTALLMENT_PLAN' AS LAYER,
+            @MGR_INST AS MGR_CNT,
+            @EN_INST  AS EN_CNT,
+            CASE WHEN @MGR_INST IS NULL OR @EN_INST IS NULL THEN NULL
+                 ELSE @EN_INST - @MGR_INST END AS DELTA,
+            CASE
+                WHEN @MGR_INST IS NULL OR @EN_INST IS NULL THEN 'SKIP'
+                WHEN @MGR_INST = @EN_INST THEN 'PASS'
+                ELSE 'SOFT_FAIL'
+            END AS GATE
+        UNION ALL
+        SELECT
+            'PAY_PT_IO1_vs_OV',
+            @MGR_PAY,
+            @EN_PAY,
+            CASE WHEN @MGR_PAY IS NULL THEN NULL ELSE @EN_PAY - @MGR_PAY END,
+            CASE
+                WHEN @MGR_PAY IS NULL THEN 'SKIP'
+                WHEN @MGR_PAY = @EN_PAY THEN 'PASS'
+                ELSE 'SOFT_FAIL'
+            END
+        UNION ALL
+        SELECT
+            'OV_IADE_INVOICE',
+            @MGR_IADE,
+            NULL,
+            NULL,
+            CASE WHEN @MGR_IADE IS NULL THEN 'SKIP' ELSE 'INFO' END
+    ) o
+    ORDER BY LAYER;
+END
+ELSE
+    PRINT '=== 6) OVERLAY atlandi (@DO_OVERLAY=0) ===';
+
+/* ============================================================
+   7) OVERALL (sert gate AND)
+   ============================================================ */
+PRINT '=== 7) OVERALL ===';
+
+DECLARE @G_INV  VARCHAR(10) = CASE WHEN @MGR_INV = @EN_INV THEN 'PASS' ELSE 'FAIL' END;
+DECLARE @G_IL   VARCHAR(10) = CASE
+    WHEN @MGR_IL IS NULL OR @EN_IL IS NULL THEN 'SKIP'
+    WHEN @MGR_IL = @EN_IL THEN 'PASS'
+    ELSE 'FAIL'
+END;
+DECLARE @G_PT   VARCHAR(10) = CASE WHEN @MGR_INV_IO0 = @EN_DEBT_PT THEN 'PASS' ELSE 'FAIL' END;
+DECLARE @G_CAN  VARCHAR(10) = CASE WHEN @CANARY_PASS = 1 THEN 'PASS' ELSE 'FAIL' END;
+
+DECLARE @OVERALL VARCHAR(10) = 'FAIL';
+IF @G_INV = 'PASS'
+   AND @G_PT = 'PASS'
+   AND @G_CAN = 'PASS'
+   AND (@G_IL = 'PASS' OR @G_IL = 'SKIP')
+    SET @OVERALL = 'PASS';
+
+SELECT
+    @G_INV AS G_INV_CNT,
+    @G_IL  AS G_IL_CNT,
+    @G_PT  AS G_DEBT_PT,
+    @G_CAN AS G_CANARY,
+    @DUP_DEBT_PT AS DUP_DEBT_PT_GROUPS,
+    @MGR_INV AS MGR_INV,
+    @EN_INV  AS EN_INV,
+    @MGR_IL  AS MGR_IL,
+    @EN_IL   AS EN_IL,
+    @MGR_INV_IO0 AS MGR_INV_IO0,
+    @EN_DEBT_PT  AS EN_DEBT_PT,
+    @OVERALL AS OVERALL;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + ' | OVERALL=' + @OVERALL
+    + ' toplam_ms=' + CAST(DATEDIFF(MILLISECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+
+PRINT 'OVERALL=PASS ise full aktarim sayim + canary OK. Soft overlay FAIL ayri incelenir.';
+PRINT 'Detay canary: adim3_pcms_kontrol_hizli.sql / adim3_energy_verify.sql';
+GO

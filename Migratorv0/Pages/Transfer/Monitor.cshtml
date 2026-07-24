@@ -1,0 +1,74 @@
+@page "/transfer/monitor"
+@model MigrationWeb.Pages.Transfer.MonitorModel
+@{
+    ViewData["Title"] = "Aktarım İzleme";
+}
+
+<link href="~/css/transfer.css" rel="stylesheet" />
+
+<div class="transfer-studio">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Aktarım izleme</h2>
+        <button type="button" class="btn btn-outline-light btn-sm" id="btnRefreshRuns">Yenile</button>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Recipe</label>
+                    <select class="form-select" id="monRecipe"></select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Faz</label>
+                    <select class="form-select" id="monPhase">
+                        <option value="ALL">ALL</option>
+                        <option value="INSERT">INSERT</option>
+                        <option value="UPDATE">UPDATE</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-warning btn-sm" id="btnStartRun">Run kaydı oluştur</button>
+                </div>
+            </div>
+            <p class="small text-muted mb-0 mt-2">Tam batch aktarım motoru sonraki aşamada bağlanacak; şimdilik run, checkpoint ve log altyapısı hazır.</p>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">Run listesi</div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-dark table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Recipe</th>
+                                <th>Faz</th>
+                                <th>Durum</th>
+                                <th>OK</th>
+                                <th>Hata</th>
+                            </tr>
+                        </thead>
+                        <tbody id="runsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">Olay logu <span id="selectedRunLabel" class="text-muted small"></span></div>
+                <div class="card-body p-0" style="max-height:480px;overflow:auto">
+                    <ul class="list-group list-group-flush" id="eventLogList">
+                        <li class="list-group-item bg-dark text-muted">Run seçin veya yenileyin</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/transfer/transfer-monitor.js"></script>
+}

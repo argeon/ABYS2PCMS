@@ -1,0 +1,605 @@
+﻿[
+    {
+        "Domain":  "INFRA",
+        "No":  100,
+        "New":  "100_INFRA_MIGLOG__setup.sql",
+        "Entity":  "MIGLOG",
+        "Id":  "INFRA_MIGLOG_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "INFRA",
+        "No":  101,
+        "New":  "101_INFRA_MIGLOG__migrate.sql",
+        "Entity":  "MIGLOG",
+        "Id":  "INFRA_MIGLOG_PROCS",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  110,
+        "New":  "110_REF_IT_USER__setup.sql",
+        "Entity":  "IT_USER",
+        "Id":  "REF_IT_USER_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  111,
+        "New":  "111_REF_IT_USER__migrate.sql",
+        "Entity":  "IT_USER",
+        "Id":  "REF_IT_USER_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  120,
+        "New":  "120_REF_BANK__setup.sql",
+        "Entity":  "BANK",
+        "Id":  "REF_BANK_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  121,
+        "New":  "121_REF_BANK__migrate.sql",
+        "Entity":  "BANK",
+        "Id":  "REF_BANK_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  122,
+        "New":  "122_REF_BANK__post.sql",
+        "Entity":  "BANK",
+        "Id":  "REF_BANK_POST",
+        "Role":  "post",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  123,
+        "New":  "123_REF_BANK__check.sql",
+        "Entity":  "BANK",
+        "Id":  "REF_BANK_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  130,
+        "New":  "130_REF_TARIFF__setup.sql",
+        "Entity":  "TARIFF",
+        "Id":  "REF_TARIFF_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  131,
+        "New":  "131_REF_TARIFF__migrate.sql",
+        "Entity":  "TARIFF",
+        "Id":  "REF_TARIFF_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  132,
+        "New":  "132_REF_TARIFF__wire.sql",
+        "Entity":  "TARIFF",
+        "Id":  "REF_TARIFF_WIRE",
+        "Role":  "wire",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  133,
+        "New":  "133_REF_TARIFF__check.sql",
+        "Entity":  "TARIFF",
+        "Id":  "REF_TARIFF_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  140,
+        "New":  "140_REF_FUID__setup.sql",
+        "Entity":  "FUID",
+        "Id":  "REF_FUID_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "REF",
+        "No":  141,
+        "New":  "141_REF_FUID__migrate.sql",
+        "Entity":  "FUID",
+        "Id":  "REF_FUID_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  200,
+        "New":  "200_MASTER_SUBSCR__setup.sql",
+        "Entity":  "SUBSCR",
+        "Id":  "MASTER_SUBSCR_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  201,
+        "New":  "201_MASTER_SUBSCR__migrate.sql",
+        "Entity":  "SUBSCR",
+        "Id":  "MASTER_SUBSCR_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  210,
+        "New":  "210_MASTER_SUBSCR_COMM__setup.sql",
+        "Entity":  "SUBSCR_COMM",
+        "Id":  "MASTER_SUBSCR_COMM_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  211,
+        "New":  "211_MASTER_SUBSCR_COMM__migrate.sql",
+        "Entity":  "SUBSCR_COMM",
+        "Id":  "MASTER_SUBSCR_COMM_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  220,
+        "New":  "220_MASTER_GIS_FLAT__setup.sql",
+        "Entity":  "GIS_FLAT",
+        "Id":  "MASTER_GIS_FLAT_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  221,
+        "New":  "221_MASTER_GIS_FLAT__migrate.sql",
+        "Entity":  "GIS_FLAT",
+        "Id":  "MASTER_GIS_FLAT_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  240,
+        "New":  "240_MASTER_ITEMS__setup.sql",
+        "Entity":  "ITEMS",
+        "Id":  "MASTER_ITEMS_SETUP",
+        "Role":  "setup",
+        "Ver":  2
+    },
+    {
+        "Domain":  "MASTER",
+        "No":  241,
+        "New":  "241_MASTER_ITEMS__migrate.sql",
+        "Entity":  "ITEMS",
+        "Id":  "MASTER_ITEMS_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  2
+    },
+    {
+        "Domain":  "AGR",
+        "No":  300,
+        "New":  "300_AGR_AGR__setup.sql",
+        "Entity":  "AGR",
+        "Id":  "AGR_AGR_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  301,
+        "New":  "301_AGR_AGR__migrate.sql",
+        "Entity":  "AGR",
+        "Id":  "AGR_AGR_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  303,
+        "New":  "303_AGR_AGR__check.sql",
+        "Entity":  "AGR",
+        "Id":  "AGR_AGR_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  310,
+        "New":  "310_AGR_GUARANTY__setup.sql",
+        "Entity":  "GUARANTY",
+        "Id":  "AGR_GUARANTY_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  311,
+        "New":  "311_AGR_GUARANTY__migrate.sql",
+        "Entity":  "GUARANTY",
+        "Id":  "AGR_GUARANTY_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  320,
+        "New":  "320_AGR_CLOSE__setup.sql",
+        "Entity":  "CLOSE",
+        "Id":  "AGR_CLOSE_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  321,
+        "New":  "321_AGR_CLOSE__migrate.sql",
+        "Entity":  "CLOSE",
+        "Id":  "AGR_CLOSE_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  322,
+        "New":  "322_AGR_CLOSE__wire.sql",
+        "Entity":  "CLOSE",
+        "Id":  "AGR_CLOSE_WIRE",
+        "Role":  "wire",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  323,
+        "New":  "323_AGR_CLOSE__check.sql",
+        "Entity":  "CLOSE",
+        "Id":  "AGR_CLOSE_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  330,
+        "New":  "330_AGR_DEV__setup.sql",
+        "Entity":  "DEV",
+        "Id":  "AGR_DEV_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  331,
+        "New":  "331_AGR_DEV__migrate.sql",
+        "Entity":  "DEV",
+        "Id":  "AGR_DEV_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  333,
+        "New":  "333_AGR_DEV__check.sql",
+        "Entity":  "DEV",
+        "Id":  "AGR_DEV_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  340,
+        "New":  "340_AGR_SERVEQ__setup.sql",
+        "Entity":  "SERVEQ",
+        "Id":  "AGR_SERVEQ_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  341,
+        "New":  "341_AGR_SERVEQ__migrate.sql",
+        "Entity":  "SERVEQ",
+        "Id":  "AGR_SERVEQ_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  343,
+        "New":  "343_AGR_SERVEQ__check.sql",
+        "Entity":  "SERVEQ",
+        "Id":  "AGR_SERVEQ_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  350,
+        "New":  "350_AGR_FITMENTFEE__setup.sql",
+        "Entity":  "FITMENTFEE",
+        "Id":  "AGR_FITMENTFEE_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  351,
+        "New":  "351_AGR_FITMENTFEE__migrate.sql",
+        "Entity":  "FITMENTFEE",
+        "Id":  "AGR_FITMENTFEE_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "AGR",
+        "No":  353,
+        "New":  "353_AGR_FITMENTFEE__check.sql",
+        "Entity":  "FITMENTFEE",
+        "Id":  "AGR_FITMENTFEE_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  500,
+        "New":  "500_READ_PLAN__setup.sql",
+        "Entity":  "PLAN",
+        "Id":  "READ_PLAN_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  501,
+        "New":  "501_READ_PLAN__migrate.sql",
+        "Entity":  "PLAN",
+        "Id":  "READ_PLAN_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  510,
+        "New":  "510_READ_INCOME__setup.sql",
+        "Entity":  "INCOME",
+        "Id":  "READ_INCOME_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  511,
+        "New":  "511_READ_INCOME__migrate.sql",
+        "Entity":  "INCOME",
+        "Id":  "READ_INCOME_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  513,
+        "New":  "513_READ_INCOME__check.sql",
+        "Entity":  "INCOME",
+        "Id":  "READ_INCOME_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "READ",
+        "No":  520,
+        "New":  "520_READ_HHD_LOC_INV_TRAN__setup.sql",
+        "Entity":  "HHD_LOC_INV_TRAN",
+        "Id":  "READ_HHD_LOC_INV_TRAN_SETUP",
+        "Role":  "setup",
+        "Ver":  2
+    },
+    {
+        "Domain":  "READ",
+        "No":  521,
+        "New":  "521_READ_HHD_LOC_INV_TRAN__migrate.sql",
+        "Entity":  "HHD_LOC_INV_TRAN",
+        "Id":  "READ_HHD_LOC_INV_TRAN_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  3
+    },
+    {
+        "Domain":  "READ",
+        "No":  523,
+        "New":  "523_READ_HHD_LOC_INV_TRAN__check.sql",
+        "Entity":  "HHD_LOC_INV_TRAN",
+        "Id":  "READ_HHD_LOC_INV_TRAN_CHECK",
+        "Role":  "check",
+        "Ver":  2
+    },
+    {
+        "Domain":  "WO",
+        "No":  530,
+        "New":  "530_WO_CS_APPOINTMENT__setup.sql",
+        "Entity":  "CS_APPOINTMENT",
+        "Id":  "WO_CS_APPOINTMENT_SETUP",
+        "Role":  "setup",
+        "Ver":  2
+    },
+    {
+        "Domain":  "WO",
+        "No":  531,
+        "New":  "531_WO_CS_APPOINTMENT__migrate.sql",
+        "Entity":  "CS_APPOINTMENT",
+        "Id":  "WO_CS_APPOINTMENT_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  7
+    },
+    {
+        "Domain":  "WO",
+        "No":  540,
+        "New":  "540_WO_WORK_RESULT__setup.sql",
+        "Entity":  "WORK_RESULT",
+        "Id":  "WO_WORK_RESULT_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "WO",
+        "No":  541,
+        "New":  "541_WO_WORK_RESULT__migrate.sql",
+        "Entity":  "WORK_RESULT",
+        "Id":  "WO_WORK_RESULT_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "LEGAL",
+        "No":  600,
+        "New":  "600_LEGAL_LP__setup.sql",
+        "Entity":  "LP",
+        "Id":  "LEGAL_LP_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "LEGAL",
+        "No":  601,
+        "New":  "601_LEGAL_LP__migrate.sql",
+        "Entity":  "LP",
+        "Id":  "LEGAL_LP_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "LEGAL",
+        "No":  602,
+        "New":  "602_LEGAL_LP__wire.sql",
+        "Entity":  "LP",
+        "Id":  "LEGAL_LP_WIRE",
+        "Role":  "wire",
+        "Ver":  1
+    },
+    {
+        "Domain":  "LEGAL",
+        "No":  603,
+        "New":  "603_LEGAL_LP__check.sql",
+        "Entity":  "LP",
+        "Id":  "LEGAL_LP_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "OPS",
+        "No":  900,
+        "New":  "900_OPS_MIGLOG__check.sql",
+        "Entity":  "MIGLOG",
+        "Id":  "OPS_MIGLOG_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "OPS",
+        "No":  910,
+        "New":  "910_OPS_AFTER__adhoc.sql",
+        "Entity":  "AFTER",
+        "Id":  "OPS_AFTER_ADHOC",
+        "Role":  "adhoc",
+        "Ver":  1
+    },
+    {
+        "Domain":  "OPS",
+        "No":  920,
+        "New":  "920_OPS_LS001_HESAP__adhoc.sql",
+        "Entity":  "LS001_HESAP",
+        "Id":  "OPS_LS001_HESAP",
+        "Role":  "adhoc",
+        "Ver":  1
+    },
+    {
+        "Domain":  "COMM",
+        "No":  550,
+        "New":  "550_COMM_LOG__setup.sql",
+        "Entity":  "COMM_LOG",
+        "Id":  "COMM_LOG_SETUP",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "COMM",
+        "No":  551,
+        "New":  "551_COMM_LOG__migrate.sql",
+        "Entity":  "COMM_LOG",
+        "Id":  "COMM_LOG_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  1
+    },
+    {
+        "Domain":  "COMM",
+        "No":  553,
+        "New":  "553_COMM_LOG__check.sql",
+        "Entity":  "COMM_LOG",
+        "Id":  "COMM_LOG_CHECK",
+        "Role":  "check",
+        "Ver":  1
+    },
+    {
+        "Domain":  "OPR",
+        "No":  560,
+        "New":  "560_OPR_SYNC_CLIENT__setup.sql",
+        "Entity":  "SYNC_CLIENT",
+        "Id":  "OPR_SYNC_CLIENT_SETUP",
+        "Role":  "setup",
+        "Ver":  2
+    },
+    {
+        "Domain":  "OPR",
+        "No":  561,
+        "New":  "561_OPR_SYNC_CLIENT__migrate.sql",
+        "Entity":  "SYNC_CLIENT",
+        "Id":  "OPR_SYNC_CLIENT_MIGRATE",
+        "Role":  "migrate",
+        "Ver":  3
+    },
+    {
+        "Domain":  "INFRA",
+        "No":  102,
+        "New":  "102_INFRA_SCRIPT_CATALOG__setup.sql",
+        "Entity":  "SCRIPT_CATALOG",
+        "Id":  "INFRA_SCRIPT_CATALOG",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "Domain":  "INFRA",
+        "No":  103,
+        "New":  "103_INFRA_SCRIPT_CATALOG__seed.sql",
+        "Entity":  "SCRIPT_CATALOG",
+        "Id":  "INFRA_SCRIPT_CATALOG_SEED",
+        "Role":  "setup",
+        "Ver":  1
+    },
+    {
+        "New":  "242_MASTER_ITEMS__post.sql",
+        "Id":  "MASTER_ITEMS_POST",
+        "No":  242,
+        "Role":  "post",
+        "Domain":  "MASTER",
+        "Entity":  "ITEMS",
+        "Ver":  1
+    }
+]

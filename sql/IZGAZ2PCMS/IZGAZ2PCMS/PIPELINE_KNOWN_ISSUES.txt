@@ -1,0 +1,40 @@
+# PIPELINE KNOWN ISSUES — ertelendi, surece devam (2026-07-23)
+
+## 1) 581 INVLINES — COMPLETED_WITH_ERRORS
+- Kaynak: 352,853,289  |  Energy: ~352,836,930  |  Eksik: ~16,359
+- Hata: Arithmetic overflow tinyint (value 262/270)
+- Ornek: LREF=546501435 (batch 1208/2572)
+- Indexler (582): OK
+- TODO: tinyint kolon map duzelt + eksik LREF backfill
+
+## 2) 576 UX_LS005_PAYTRANS_ABYS_ID — duplicate ABYS_ID
+- 10 duplicate ABYS_ID (hepsi IOCODE=1, borc IOCODE=0 temiz)
+- Ornek: 36094467, 36208065, 42385084, 47900036, 49747798,
+         49750246, 53449605, 55097222, 56773538, 57882014
+- 575 veri: COMPLETED (~73.5M)
+- Workaround: UX skip + IX_LS005_PAYTRANS_ABYS_ID (non-unique); diger 576 indexler kurulur
+- TODO: dup satirlar temizlenince UX CREATE yeniden
+
+## 3) UX_LS005_PAYTRANS_DEBT_INVOICEREF — taksit (B8 standalone)
+- Eski UX: invoice basina 1 borc — 613 split → Msg 2601
+- prodEnergy/80_613_taksit__STANDALONE.sql (@RUN_FULL=0 default)
+- TODO: (INVOICEREF, INST_NR) unique WHERE CANCELED=0 IOCODE=0
+
+## 4) 590 IADE INVLINES — HOTFIX
+- Fix: ABYS_ID=LREF; hotfix/03_backfill_iade_invlines.sql
+
+## 5) LS_OV_PAY_ALLOC over-alloc (2026-07-24)
+- Fix: waterfill in 30/31; dump → 597 @CLEAN=0
+
+## 6) KISMI model: + hareket + EXPLAIN + borc PT (2026-07-24)
+- Kaynak: oracleCTAS/prod2/20_ls_eksilten_overlay.sql; hotfix/04
+
+## 7) AFL FRK master (2026-07-24)
+- CTAS 50 → LS_AFL_OPEN_DEBT; FRK 91 → MIG_AFL_FRK_LOG
+- Grain ACCOUNT.ID = ABYS_ACCOUNT_ID; index 00_pre_indexes
+
+## 8) Arttiran ALLOC cascade (2026-07-24)
+- RN_TYPE per ACTION_TYPE + waterfill MAIN_PRI (30/31)
+
+## 9) MAXDOP=8
+- Server maxdop=8; 590/597 TABLOCK + MAXDOP hints

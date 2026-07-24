@@ -1,0 +1,143 @@
+@page "/stage-ops/{surface}"
+@model MigrationWeb.Pages.StageOps.BoardModel
+@{
+    ViewData["Title"] = Model.Title;
+    var surface = Model.Surface;
+}
+<link href="~/css/stage-ops.css" rel="stylesheet" />
+
+<div class="stage-ops" id="stageOpsBoard" data-surface="@surface">
+    <div class="so-nav-pills">
+        <a href="/stage-ops">Hub</a>
+        <a href="/stage-ops/ctas" class="@(surface == "ctas" ? "active" : "")">CTAS</a>
+        <a href="/stage-ops/transfer-sql" class="@(surface == "transfer-sql" ? "active" : "")">TRANSFER SQL</a>
+        <a href="/stage-ops/prod-sql" class="@(surface == "prod-sql" ? "active" : "")">PROD SQL</a>
+        <a href="/stage-ops/connections">Bağlantılar</a>
+        <a href="/stage-ops/results">Sonuçlar</a>
+    </div>
+
+    <div class="so-hero">
+        <div>
+            <div class="so-badge">@Model.Badge</div>
+            <h1>@Model.Title</h1>
+            <p>@Model.Subtitle</p>
+        </div>
+    </div>
+
+    <div class="so-stat-row" id="soStats">
+        <div class="so-stat"><div class="label">Stage</div><div class="value" id="stTotal">—</div></div>
+        <div class="so-stat"><div class="label">Seçili</div><div class="value" id="stSelected">0</div></div>
+        <div class="so-stat"><div class="label">İlerleme</div><div class="value" id="stProgress">—</div></div>
+        <div class="so-stat"><div class="label">Aktif run</div><div class="value" id="stRun">—</div></div>
+    </div>
+
+    <div class="so-toolbar">
+        <button type="button" class="so-btn so-btn-primary" id="btnStart">Seçilenleri başlat</button>
+        <button type="button" class="so-btn" id="btnResume">Resume</button>
+        <label class="so-btn so-btn-ghost" style="margin:0">
+            Parallel
+            <input type="number" id="maxParallel" class="so-input" value="@Model.DefaultParallel" min="1" max="8" style="width:4rem;margin-left:.4rem" @(surface != "ctas" ? "disabled" : "") />
+        </label>
+        <button type="button" class="so-btn" id="btnSelectReady">Ready seç</button>
+        <button type="button" class="so-btn" id="btnClear">Seçimi temizle</button>
+        <button type="button" class="so-btn" id="btnRefresh">Yenile</button>
+        <button type="button" class="so-btn" id="btnSchemaCheck">Şema kontrol</button>
+        <label class="so-btn so-btn-ghost" style="margin:0;cursor:pointer">
+            .sql yükle
+            <input type="file" id="fileUpload" accept=".sql" multiple hidden />
+        </label>
+        <a class="so-btn so-btn-ghost" href="/stage-ops/results" style="text-decoration:none">Sonuç arşivi</a>
+    </div>
+    <p class="so-hint" id="soHint">@Model.Hint</p>
+    <div id="connBanner" class="so-alert so-alert-warn" hidden></div>
+    <div id="soAlert" class="so-alert" hidden></div>
+
+    <div class="so-layout-2" style="margin-top:1rem">
+        <div class="so-panel">
+            <div class="so-panel-header">
+                <h3>Stage board</h3>
+                <span class="so-muted" style="color:var(--so-muted);font-size:.8rem" id="boardMeta"></span>
+            </div>
+            <div style="overflow:auto;max-height:560px">
+                <table class="so-table">
+                    <thead>
+                        <tr>
+                            <th style="width:2.5rem"></th>
+                            <th>Stage</th>
+                            <th>Domain</th>
+                            <th>Analiz</th>
+                            <th>Durum</th>
+                            <th>Tahmini satır</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="stageBody">
+                        <tr><td colspan="7" style="color:var(--so-muted);padding:1rem">Yükleniyor…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:1rem">
+            <div class="so-panel">
+                <div class="so-panel-header">
+                    <h3>Run izleme</h3>
+                    <button type="button" class="so-btn so-btn-ghost" id="btnRefreshRuns">Yenile</button>
+                </div>
+                <div style="padding:0.75rem 1rem">
+                    <div class="so-progress" title="Seçili run ilerleme"><span id="runBar" style="width:0%"></span></div>
+                    <div class="so-hint" id="runBarLabel">Run seçin veya başlatın</div>
+                </div>
+                <div style="overflow:auto;max-height:180px">
+                    <table class="so-table">
+                        <thead>
+                            <tr><th>#</th><th>Durum</th><th>OK</th><th>Hata</th><th>Başlangıç</th></tr>
+                        </thead>
+                        <tbody id="runsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="so-panel" style="flex:1">
+                <div class="so-panel-header"><h3>Olay logu</h3><span id="selectedRunLabel" style="color:var(--so-muted);font-size:.8rem"></span></div>
+                <ul class="so-event-list" id="eventList">
+                    <li>Henüz olay yok</li>
+                </ul>
+            </div>
+
+            <div class="so-panel so-errors-panel" id="errorsPanel">
+                <div class="so-panel-header">
+                    <h3>Hatalar</h3>
+                    <span id="errorsCount" style="color:var(--so-danger);font-size:.8rem;font-weight:600"></span>
+                </div>
+                <div id="errorsBody" style="padding:0.75rem 1rem;max-height:280px;overflow:auto;font-size:0.82rem;color:var(--so-muted)">
+                    Seçili run’da hata yok veya run seçilmedi.
+                </div>
+            </div>
+
+            <div class="so-panel">
+                <div class="so-panel-header"><h3>Yükleme / analiz</h3></div>
+                <div id="uploadResults" style="padding:0.75rem 1rem;font-size:0.82rem;color:var(--so-muted);max-height:320px;overflow:auto">
+                    .sql dosyası yükleyin — syntax ve ilişki analizi otomatik çalışır.
+                </div>
+            </div>
+
+            @if (surface == "transfer-sql")
+            {
+                <div class="so-panel">
+                    <div class="so-panel-header">
+                        <h3>MIG_RUN özeti</h3>
+                        <button type="button" class="so-btn so-btn-ghost" id="btnMigRefresh">Yenile</button>
+                    </div>
+                    <div id="migLogPanel" style="padding:0.75rem 1rem;font-size:0.8rem;color:var(--so-muted);max-height:220px;overflow:auto">
+                        STAGEOPS_MSSQL_* ile bağlanınca canlı MIG_RUN / hata listesi görünür.
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/stage-ops/stage-ops-board.js" asp-append-version="true"></script>
+}

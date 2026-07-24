@@ -1,0 +1,183 @@
+/* ============================================================
+   SCRIPT_ID : PROJECTLINE_CHECK
+   SCRIPT_NO : 596
+   FILE      : 596_PROJECTLINE__check.sql
+   VERSION   : 1
+   ============================================================ */
+-- ============================================================
+-- LS_005_01_PROJECTLINE — kontrol sorgulari
+-- Kaynak: izgazMGR.dbo.LS_PROJECTLINE
+-- ============================================================
+USE energy;
+GO
+
+-- ------------------------------------------------------------
+-- PRE-FLIGHT (migrate oncesi — izgazMGR staging)
+-- ------------------------------------------------------------
+IF OBJECT_ID('izgazMGR.dbo.LS_PROJECTLINE', 'U') IS NOT NULL
+BEGIN
+    SELECT 'PRE: kaynak toplam' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE;
+
+    SELECT 'PRE: ORACLE_LINE_ID NULL' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE ORACLE_LINE_ID IS NULL;
+
+    SELECT 'PRE: LREF duplicate' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM (
+        SELECT LREF
+        FROM izgazMGR.dbo.LS_PROJECTLINE
+        WHERE LREF IS NOT NULL
+        GROUP BY LREF
+        HAVING COUNT(*) > 1
+    ) d;
+
+    SELECT 'PRE: ORACLE_LINE_ID duplicate groups (beklenen; ABYS_ID=LREF)' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM (
+        SELECT ORACLE_LINE_ID
+        FROM izgazMGR.dbo.LS_PROJECTLINE
+        WHERE ORACLE_LINE_ID IS NOT NULL
+        GROUP BY ORACLE_LINE_ID
+        HAVING COUNT(*) > 1
+    ) d;
+
+    SELECT 'PRE: ORACLE_PROJECT_ID NULL' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE LREF IS NOT NULL AND ORACLE_PROJECT_ID IS NULL;
+
+    SELECT 'PRE: REGSNO > 50 char (truncation)' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE LEN(REGSNO) > 50;
+
+    SELECT 'PRE: WORKERID > 10 char (truncation)' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE LEN(WORKERID) > 10;
+
+    SELECT 'PRE: FLAT_NUMBER > 50 char (truncation)' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE LEN(FLAT_NUMBER) > 50;
+
+    SELECT 'PRE: WORKERID2 non-int' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE WORKERID2 IS NOT NULL AND TRY_CAST(WORKERID2 AS INT) IS NULL;
+
+    SELECT 'PRE: SAP_TUKETIM_NOKTASI non-int' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE SAP_TUKETIM_NOKTASI IS NOT NULL AND TRY_CAST(SAP_TUKETIM_NOKTASI AS INT) IS NULL;
+
+    SELECT 'PRE: SAP_TESISAT_NO non-int' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM izgazMGR.dbo.LS_PROJECTLINE
+    WHERE SAP_TESISAT_NO IS NOT NULL AND TRY_CAST(SAP_TESISAT_NO AS INT) IS NULL;
+END
+ELSE
+    SELECT 'izgazMGR.dbo.LS_PROJECTLINE yok — pre-flight atlandi' AS UYARI;
+GO
+
+IF OBJECT_ID('energy.dbo.LS_005_01_PROJECTLINE', 'U') IS NULL
+BEGIN
+    SELECT 'LS_005_01_PROJECTLINE tablosu yok' AS UYARI;
+    RETURN;
+END
+GO
+
+-- ------------------------------------------------------------
+-- POST-FLIGHT (hedef)
+-- ------------------------------------------------------------
+SELECT 'LS_005_01_PROJECTLINE toplam' AS METRIK, COUNT(*) AS DEGER
+FROM energy.dbo.LS_005_01_PROJECTLINE
+UNION ALL
+SELECT 'ABYS migrate satirlari', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL
+UNION ALL
+SELECT 'PROJECTID NULL (wire bekliyor)', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL AND PROJECTID IS NULL
+UNION ALL
+SELECT 'FLATID NULL (wire bekliyor)', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL AND FLATID IS NULL
+UNION ALL
+SELECT 'AGRID NULL (wire bekliyor)', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL AND AGRID IS NULL
+UNION ALL
+SELECT 'ABYS_PROJECT_ID NULL', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL AND ABYS_PROJECT_ID IS NULL
+UNION ALL
+SELECT 'STATID NULL', COUNT(*)
+FROM energy.dbo.LS_005_01_PROJECTLINE
+WHERE ABYS_ID IS NOT NULL AND STATID IS NULL;
+GO
+
+-- Kaynak vs hedef adet
+IF OBJECT_ID('izgazMGR.dbo.LS_PROJECTLINE', 'U') IS NOT NULL
+BEGIN
+    SELECT
+        (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_PROJECTLINE WHERE LREF IS NOT NULL) AS SRC_CNT,
+        (SELECT COUNT_BIG(*) FROM energy.dbo.LS_005_01_PROJECTLINE WHERE ABYS_ID IS NOT NULL) AS TGT_CNT,
+        (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_PROJECTLINE WHERE LREF IS NOT NULL) -
+        (SELECT COUNT_BIG(*) FROM energy.dbo.LS_005_01_PROJECTLINE WHERE ABYS_ID IS NOT NULL) AS DIFF;
+END
+GO
+
+-- Orphan: kaynakta var, hedefte yok
+IF OBJECT_ID('izgazMGR.dbo.LS_PROJECTLINE', 'U') IS NOT NULL
+BEGIN
+    SELECT TOP (50)
+        s.LREF AS ABYS_ID,
+        s.ORACLE_LINE_ID AS ABYS_ORACLE_LINE_ID,
+        s.ORACLE_PROJECT_ID AS ABYS_PROJECT_ID
+    FROM izgazMGR.dbo.LS_PROJECTLINE s
+    WHERE s.LREF IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM energy.dbo.LS_005_01_PROJECTLINE t
+          WHERE t.ABYS_ID = CAST(s.LREF AS BIGINT)
+      )
+    ORDER BY s.LREF;
+END
+GO
+
+-- Parent PROJECT kopru orphan (wire oncesi bilgi)
+IF OBJECT_ID('energy.dbo.LS_005_01_PROJECT', 'U') IS NOT NULL
+BEGIN
+    SELECT 'PROJECTLINE → PROJECT ABYS orphan' AS RELATION_NAME, COUNT(*) AS ORPHAN_COUNT
+    FROM energy.dbo.LS_005_01_PROJECTLINE pl
+    WHERE pl.ABYS_ID IS NOT NULL
+      AND pl.ABYS_PROJECT_ID IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM energy.dbo.LS_005_01_PROJECT p
+          WHERE p.ABYS_ID = pl.ABYS_PROJECT_ID
+      );
+END
+GO
+
+-- PK / FK durumu
+SELECT
+    'PK_LS_005_01_COLPROJECT' AS CONSTRAINT_NAME,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM sys.key_constraints
+        WHERE name = 'PK_LS_005_01_COLPROJECT'
+          AND parent_object_id = OBJECT_ID('energy.dbo.LS_005_01_PROJECTLINE')
+    ) THEN 'VAR' ELSE 'YOK (restore bekliyor)' END AS DURUM
+UNION ALL
+SELECT
+    'FK_LS_005_01_PROJECTLINE_LS_005_01_PROJECT',
+    CASE WHEN EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = 'FK_LS_005_01_PROJECTLINE_LS_005_01_PROJECT'
+          AND parent_object_id = OBJECT_ID('energy.dbo.LS_005_01_PROJECTLINE')
+    ) THEN 'VAR' ELSE 'YOK (restore bekliyor)' END
+UNION ALL
+SELECT
+    'FK_LS_005_01_PROJECTLINE_LS_FLAT',
+    CASE WHEN EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = 'FK_LS_005_01_PROJECTLINE_LS_FLAT'
+          AND parent_object_id = OBJECT_ID('energy.dbo.LS_005_01_PROJECTLINE')
+    ) THEN 'VAR' ELSE 'YOK (restore bekliyor)' END;
+GO
+
+EXEC energy.dbo.SP_MIG_LOG_GET_SUMMARY @MigrationCode = 'LS_005_01_PROJECTLINE';
+GO

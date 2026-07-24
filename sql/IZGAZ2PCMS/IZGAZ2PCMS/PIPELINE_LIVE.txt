@@ -1,0 +1,7 @@
+﻿UPDATED=2026-07-24
+PHASE=CTAS_FROM_SCRATCH
+MODE=MANUAL_ONLY
+START= oracleCTAS/prod2/00_session_parallel.sql
+NEXT= O0 → O0b → O10 → O11 → O12 → O13 → O14 → O20 → O27 → O30 → O41 → O50
+PLAN= prodEnergy/MANUAL_RUN_PLAN_GREENFIELD.txt
+NOTE=Energy/dump after CTAS complete; no hotfix on main path

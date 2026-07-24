@@ -1,0 +1,49 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Web UI",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-web",
+            "program": "${workspaceFolder}/Migratorv0/bin/Debug/net8.0/Migratorv0.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Migratorv0",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "%s/wizard"
+            },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            },
+            "sourceFileMap": {
+                "/Views": "${workspaceFolder}/Migratorv0/Views"
+            }
+        },
+        {
+            "name": "Migration Engine",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-engine",
+            "program": "${workspaceFolder}/MigrationEngine/bin/Debug/net8.0/MigrationEngine.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/MigrationEngine",
+            "stopAtEntry": false,
+            "console": "integratedTerminal"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Web UI + Engine",
+            "configurations": ["Web UI", "Migration Engine"],
+            "stopAll": true,
+            "presentation": {
+                "hidden": false,
+                "group": "migration",
+                "order": 1
+            }
+        }
+    ]
+}

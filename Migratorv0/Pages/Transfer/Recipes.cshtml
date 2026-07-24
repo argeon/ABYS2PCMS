@@ -1,0 +1,43 @@
+@page "/transfer/recipes"
+@model MigrationWeb.Pages.Transfer.RecipesModel
+@{
+    ViewData["Title"] = "Transfer Tanımları";
+}
+
+<link href="~/css/transfer.css" rel="stylesheet" />
+
+<div class="transfer-studio">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Aktarım tanımları (Recipe)</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-info btn-sm" id="btnItUserSample">IT_USER örneği</button>
+            <a href="/transfer/recipe-edit" class="btn btn-primary btn-sm">+ Yeni tanım</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-dark table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Migration ID</th>
+                        <th>Ad</th>
+                        <th>Kaynak</th>
+                        <th>Hedef</th>
+                        <th>Sıra</th>
+                        <th>Durum</th>
+                        <th>Güncelleme</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="recipeTableBody">
+                    <tr><td colspan="8" class="text-muted p-3">Yükleniyor…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/transfer/transfer-recipes.js"></script>
+}

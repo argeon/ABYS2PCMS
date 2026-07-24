@@ -1,0 +1,313 @@
+# WO_WORK_RESULT → LS_005_01_WO_WORK_RESULT Migration Mapping
+
+Kaynak: `izgazMGR.dbo.WO_WORK_RESULT` (SMS.WO_WORK_RESULT mirror)
+Hedef: `energy.dbo.LS_005_01_WO_WORK_RESULT`
+Parent: `WO_WORK` → `energy.dbo.LS_005_01_CS_APPOINTMENT` (`LREF = WO_WORK.ID`)
+
+Pattern: dump-style INSERT + ABYS_ bridge + IDENTITY_INSERT ON.  
+**Aktarım sırasında index/FK JOIN veya OLD_REF resolve yok.** Prm / meter / (opsiyonel) user wire ve `M_METER_*` enrich → proje sonu, isteğe bağlı.
+
+---
+
+## 1. Migrate sırası
+
+| Sıra | Adım | Zorunlu? |
+|---|---|---|
+| 1 | `LS_005_01_CS_APPOINTMENT` (WO_WORK) | Evet |
+| 2 | `LS_005_01_WO_WORK_RESULT` — düz INSERT, lookup yok | Evet |
+| 3 | FK wire (prm / meter / shelf / …) | Hayır — proje sonu |
+| 4 | `M_METER_*` / hedef-only enrich UPDATE | Hayır — aktarım sonrası |
+
+Bulk INSERT’te orphan `EXISTS`, prm JOIN, meter JOIN, index seek ile doğrulama **yapılmaz**. Hedef tabloda FK/constraint kapalı veya sonra açılacak varsayılır.
+
+---
+
+## 2. Kaynak: izgazMGR.dbo.WO_WORK_RESULT
+
+Oracle `SMS.WO_WORK_RESULT` ile aynı kolon seti (özet). PK: `ID`. UK: `WORK_ID` (1 result / 1 work).
+
+Önemli FK’ler (kaynak tarafı; pass 1’de resolve edilmez):
+- `WORK_ID` → `WO_WORK.ID` (= appointment `LREF`)
+- `CAUSE_RESULT_ID` → `WO_CAUSE_RESULT_PRM`
+- `CAUSE_RESULT_REASON_ID` → `WO_CAUSE_RESULT_REASON_PRM`
+- `ASSIGNEE_USER_ID` / `_2` / audit user → `IT_USER`
+- `C_METER_ID` / `M_METER_ID` → `CS_METER`
+- mark/model/type/module/cutting/control/shelf → ilgili prm tabloları
+
+---
+
+## 3. Hedef: energy.dbo.LS_005_01_WO_WORK_RESULT
+
+Verilen canlı DDL + migration için eklenecek ABYS_ kolonlar.
+
+```sql
+-- === ABYS_ bridge (ALTER ile eklenecek) ===
+-- ABYS_ID, ABYS_WORK_ID, ABYS_*_USER_ID, ABYS_CAUSE_*, ABYS_C_METER_ID, ABYS_M_METER_ID, ABYS_WAREHOUSE_SHELF_ID
+```
+
+### 3.1. ALTER TABLE
+
+```sql
+ALTER TABLE energy.dbo.LS_005_01_WO_WORK_RESULT ADD
+    ABYS_ID                       INT NULL,
+    ABYS_WORK_ID                  INT NULL,
+    ABYS_ASSIGNEE_USER_ID         INT NULL,
+    ABYS_ASSIGNEE_USER_ID_2       INT NULL,
+    ABYS_CREATED_USER_ID          INT NULL,
+    ABYS_UPDATED_USER_ID          INT NULL,
+    ABYS_CAUSE_RESULT_ID          INT NULL,
+    ABYS_CAUSE_RESULT_REASON_ID   INT NULL,
+    ABYS_C_METER_ID               INT NULL,
+    ABYS_M_METER_ID               INT NULL,
+    ABYS_WAREHOUSE_SHELF_ID       INT NULL;
+```
+
+> Deploy script’inde kolon varlık kontrolü ile idempotent hale getirilmeli.
+
+---
+
+## 4. Pass 1 kuralları (bulk INSERT)
+
+| Kural | Uygulama |
+|---|---|
+| PK | `LREF = ID`, `IDENTITY_INSERT ON` |
+| Parent | `WORK_ID` **direkt** = `LS_005_01_CS_APPOINTMENT.LREF` (`WO_WORK.ID`) |
+| FK ID’ler | Ham kopya (prm/meter/shelf/cutting/control) — JOIN yok |
+| User | Insert’te `FN_MIG_MAP_USER_USERID` (+10000) — **aritmetik, index/FK aramaz**. Ham id → `ABYS_*_USER_ID` |
+| Flag | `NUMBER(1,0)` → `BIT` |
+| Tarih | `DATE` / `TIMESTAMP` → `DATETIME` (gerekirse cast) |
+| Hedef-only kolonlar | `NULL` (pass 4’e bırak) |
+| Orphan / UK check | Pass 1’de yok; proje sonu rapor |
+
+---
+
+## 5. Kolon eşleştirme (Pass 1)
+
+| Hedef | Kaynak | Dönüşüm / Not |
+|---|---|---|
+| LREF | ID | IDENTITY_INSERT |
+| ABYS_ID | ID | bridge |
+| WORK_ID | WORK_ID | direkt (= appointment LREF) |
+| ABYS_WORK_ID | WORK_ID | ham bridge |
+| CAUSE_RESULT_ID | CAUSE_RESULT_ID | ham |
+| ABYS_CAUSE_RESULT_ID | CAUSE_RESULT_ID | bridge |
+| CAUSE_RESULT_REASON_ID | CAUSE_RESULT_REASON_ID | ham |
+| ABYS_CAUSE_RESULT_REASON_ID | CAUSE_RESULT_REASON_ID | bridge |
+| COMPLETED_DATE | COMPLETED_DATE | CAST → DATETIME |
+| ASSIGNEE_USER_ID | ASSIGNEE_USER_ID | `FN_MIG_MAP_USER_USERID` |
+| ABYS_ASSIGNEE_USER_ID | ASSIGNEE_USER_ID | ham |
+| DESCRIPTION | DESCRIPTION | direkt |
+| C_METER_NUMBER | C_METER_NUMBER | direkt |
+| C_METER_MARK_ID | C_METER_MARK_ID | ham |
+| C_METER_MODEL_ID | C_METER_MODEL_ID | ham |
+| C_INDEX | C_INDEX | direkt |
+| C_CORRECTED_INDEX | C_CORRECTED_INDEX | direkt |
+| C_PRODUCTION_YEAR | C_PRODUCTION_YEAR | direkt |
+| C_COMMUNUCATION_MODULE_ID | C_COMMUNUCATION_MODULE_ID | ham |
+| C_CORRECTOR_MODULE_ID | C_CORRECTOR_MODULE_ID | ham |
+| C_CONSUMPTION | C_CONSUMPTION | direkt |
+| C_METER_TYPE_ID | C_METER_TYPE_ID | ham |
+| M_METER_ID | M_METER_ID | ham |
+| ABYS_M_METER_ID | M_METER_ID | bridge |
+| M_INDEX | M_INDEX | direkt |
+| M_CORRECTED_INDEX | M_CORRECTED_INDEX | direkt |
+| M_COMMUNUCATION_MODULE_ID | M_COMMUNUCATION_MODULE_ID | ham |
+| M_CORRECTOR_MODULE_ID | M_CORRECTOR_MODULE_ID | ham |
+| I_AGREEMENT_NUMBER | I_AGREEMENT_NUMBER | direkt (denormalize bilgi) |
+| I_CUSTOMER_NAME | I_CUSTOMER_NAME | direkt |
+| I_SERVICE_BOX_CODE | I_SERVICE_BOX_CODE | direkt |
+| I_DOOR_NUMBER | I_DOOR_NUMBER | direkt |
+| I_FLAT_NUMBER | I_FLAT_NUMBER | direkt |
+| I_FLOOR_NUMBER | I_FLOOR_NUMBER | direkt |
+| I_METER_NUMBER | I_METER_NUMBER | direkt |
+| O_CUTTING_SERIAL_NUMBER | O_CUTTING_SERIAL_NUMBER | direkt |
+| O_CUTTING_TYPE_ID | O_CUTTING_TYPE_ID | ham |
+| O_VALVE_ARM_STATUS | O_VALVE_ARM_STATUS | → BIT |
+| O_IS_METER_INTERFERE | O_IS_METER_INTERFERE | → BIT |
+| O_HAS_SEAL | O_HAS_SEAL | → BIT |
+| PROBLEM_DESCRIPTION | PROBLEM_DESCRIPTION | direkt |
+| CREATED_USER_ID | CREATED_USER_ID | `FN_MIG_MAP_USER_USERID` |
+| ABYS_CREATED_USER_ID | CREATED_USER_ID | ham |
+| CREATED_TIMESTAMP | CREATED_TIMESTAMP | CAST → DATETIME |
+| UPDATED_USER_ID | UPDATED_USER_ID | `FN_MIG_MAP_USER_USERID` |
+| ABYS_UPDATED_USER_ID | UPDATED_USER_ID | ham |
+| UPDATED_TIMESTAMP | UPDATED_TIMESTAMP | CAST → DATETIME |
+| VERSION | VERSION | direkt |
+| C_IS_BROKEN | C_IS_BROKEN | → BIT |
+| I_MINUTE_NUMBER | I_MINUTE_NUMBER | direkt |
+| I_MINUTE_DATE | I_MINUTE_DATE | CAST → DATETIME |
+| ASSIGNEE_USER_ID_2 | ASSIGNEE_USER_ID_2 | `FN_MIG_MAP_USER_USERID` |
+| ABYS_ASSIGNEE_USER_ID_2 | ASSIGNEE_USER_ID_2 | ham |
+| LONGITUDE | LONGITUDE | direkt |
+| LATITUDE | LATITUDE | direkt |
+| CONTROL_CAUSE_ID | CONTROL_CAUSE_ID | ham |
+| CONTROL_PRM_ID | CONTROL_PRM_ID | ham |
+| CONTROL_DESCRIPTION | CONTROL_DESCRIPTION | direkt |
+| C_METER_ID | C_METER_ID | ham |
+| ABYS_C_METER_ID | C_METER_ID | bridge |
+| IS_PICTURE_SEND_LATER | IS_PICTURE_SEND_LATER | → BIT |
+| IS_APPROVED | IS_APPROVED | → BIT |
+| C_STAMP_YEAR | C_STAMP_YEAR | direkt |
+| C_METER_DIAMETER_ID | C_METER_DIAMETER_ID | ham |
+| C_METER_LINK_DIAMETER_ID | C_METER_LINK_DIAMETER_ID | ham |
+| METER_ADDRESS | METER_ADDRESS | direkt |
+| C_RETROKIT_INDEX | C_RETROKIT_INDEX | direkt |
+| M_RETROKIT_INDEX | M_RETROKIT_INDEX | direkt |
+| WAREHOUSE_SHELF_ID | WAREHOUSE_SHELF_ID | ham |
+| ABYS_WAREHOUSE_SHELF_ID | WAREHOUSE_SHELF_ID | bridge |
+| SACK_NUMBER | SACK_NUMBER | direkt |
+| REKOR_SEAL_NUMBER | REKOR_SEAL_NUMBER | direkt |
+
+### 5.1. Hedefte var, kaynak DDL’de yok → Pass 1’de NULL
+
+| Hedef kolon | Pass 1 | Pass 4 (opsiyonel) |
+|---|---|---|
+| C_FIRST_INDEX | NULL | — |
+| C_CORRECTOR_FIRST_INDEX | NULL | — |
+| C_CORRECTOR_LAST_INDEX | NULL | — |
+| TERMINAL_CODE | NULL | — |
+| SUBSCRIBER_LOCATION | NULL | — |
+| LAST_INDEX | NULL | — |
+| METER_STATUS_CODE | NULL | — |
+| IS_BARCODE_READING | NULL | — |
+| M_METER_NUMBER | NULL | meter JOIN UPDATE |
+| M_PRODUCTION_YEAR | NULL | meter JOIN UPDATE |
+| M_METER_MARK_ID | NULL | meter JOIN UPDATE |
+| M_METER_TYPE_ID | NULL | meter JOIN UPDATE |
+
+> Önce `izgazMGR.dbo.WO_WORK_RESULT` kolon listesini doğrula; mirror’da bu alanlar varsa Pass 1’de map et.
+
+---
+
+## 6. Pass 3 — FK wire (proje sonu, isteğe bağlı)
+
+Aktarım bittikten sonra, gerekirse:
+- prm ID remap (CAUSE_RESULT, cutting, control, mark/model/type, module, shelf)
+- meter ID remap (`C_METER_ID`, `M_METER_ID`) — `ABYS_*` üzerinden
+- user: insert’te +10000 uygulandıysa ek iş yok; ham bırakıldıysa toplu `FN_MIG_MAP_USER_USERID`
+
+Wire sırasında büyük JOIN’ler batch’lenmeli; Pass 1’i bloke etmez.
+
+---
+
+## 7. Pass 4 — M_METER_* enrich (aktarım sonrası UPDATE, isteğe bağlı)
+
+```sql
+-- örnek iskelet (meter hedef tablo adı teyit edilecek)
+UPDATE r
+SET
+    r.M_METER_NUMBER    = m.SERIAL_NUMBER,      -- örnek
+    r.M_PRODUCTION_YEAR = m.PRODUCTION_YEAR,
+    r.M_METER_MARK_ID   = m.MARK_ID,
+    r.M_METER_TYPE_ID   = m.TYPE_ID
+FROM energy.dbo.LS_005_01_WO_WORK_RESULT r
+INNER JOIN /* meter hedef */ m ON m.LREF = r.M_METER_ID  -- veya ABYS_M_METER_ID
+WHERE r.M_METER_ID IS NOT NULL;
+```
+
+---
+
+## 8. INSERT sketch (Pass 1)
+
+```sql
+SET IDENTITY_INSERT energy.dbo.LS_005_01_WO_WORK_RESULT ON;
+
+INSERT INTO energy.dbo.LS_005_01_WO_WORK_RESULT (
+    LREF, WORK_ID, CAUSE_RESULT_ID, CAUSE_RESULT_REASON_ID,
+    COMPLETED_DATE, ASSIGNEE_USER_ID, DESCRIPTION,
+    C_METER_NUMBER, C_METER_MARK_ID, C_METER_MODEL_ID,
+    C_INDEX, C_CORRECTED_INDEX, C_PRODUCTION_YEAR,
+    C_COMMUNUCATION_MODULE_ID, C_CORRECTOR_MODULE_ID, C_CONSUMPTION, C_METER_TYPE_ID,
+    M_METER_ID, M_INDEX, M_CORRECTED_INDEX,
+    M_COMMUNUCATION_MODULE_ID, M_CORRECTOR_MODULE_ID,
+    I_AGREEMENT_NUMBER, I_CUSTOMER_NAME, I_SERVICE_BOX_CODE,
+    I_DOOR_NUMBER, I_FLAT_NUMBER, I_FLOOR_NUMBER, I_METER_NUMBER,
+    O_CUTTING_SERIAL_NUMBER, O_CUTTING_TYPE_ID,
+    O_VALVE_ARM_STATUS, O_IS_METER_INTERFERE, O_HAS_SEAL,
+    PROBLEM_DESCRIPTION,
+    CREATED_USER_ID, CREATED_TIMESTAMP, UPDATED_USER_ID, UPDATED_TIMESTAMP, VERSION,
+    C_IS_BROKEN, I_MINUTE_NUMBER, I_MINUTE_DATE, ASSIGNEE_USER_ID_2,
+    LONGITUDE, LATITUDE, CONTROL_CAUSE_ID, CONTROL_PRM_ID, CONTROL_DESCRIPTION,
+    C_METER_ID, IS_PICTURE_SEND_LATER, IS_APPROVED,
+    C_STAMP_YEAR, C_METER_DIAMETER_ID, C_METER_LINK_DIAMETER_ID, METER_ADDRESS,
+    C_RETROKIT_INDEX, M_RETROKIT_INDEX, WAREHOUSE_SHELF_ID, SACK_NUMBER, REKOR_SEAL_NUMBER,
+    C_FIRST_INDEX, C_CORRECTOR_FIRST_INDEX, C_CORRECTOR_LAST_INDEX,
+    TERMINAL_CODE, SUBSCRIBER_LOCATION, LAST_INDEX, METER_STATUS_CODE, IS_BARCODE_READING,
+    M_METER_NUMBER, M_PRODUCTION_YEAR, M_METER_MARK_ID, M_METER_TYPE_ID,
+    ABYS_ID, ABYS_WORK_ID,
+    ABYS_ASSIGNEE_USER_ID, ABYS_ASSIGNEE_USER_ID_2, ABYS_CREATED_USER_ID, ABYS_UPDATED_USER_ID,
+    ABYS_CAUSE_RESULT_ID, ABYS_CAUSE_RESULT_REASON_ID,
+    ABYS_C_METER_ID, ABYS_M_METER_ID, ABYS_WAREHOUSE_SHELF_ID
+)
+SELECT
+    s.ID,
+    s.WORK_ID,
+    s.CAUSE_RESULT_ID,
+    s.CAUSE_RESULT_REASON_ID,
+    CAST(s.COMPLETED_DATE AS DATETIME),
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(s.ASSIGNEE_USER_ID AS INT)),
+    s.DESCRIPTION,
+    s.C_METER_NUMBER, s.C_METER_MARK_ID, s.C_METER_MODEL_ID,
+    s.C_INDEX, s.C_CORRECTED_INDEX, s.C_PRODUCTION_YEAR,
+    s.C_COMMUNUCATION_MODULE_ID, s.C_CORRECTOR_MODULE_ID, s.C_CONSUMPTION, s.C_METER_TYPE_ID,
+    s.M_METER_ID, s.M_INDEX, s.M_CORRECTED_INDEX,
+    s.M_COMMUNUCATION_MODULE_ID, s.M_CORRECTOR_MODULE_ID,
+    s.I_AGREEMENT_NUMBER, s.I_CUSTOMER_NAME, s.I_SERVICE_BOX_CODE,
+    s.I_DOOR_NUMBER, s.I_FLAT_NUMBER, s.I_FLOOR_NUMBER, s.I_METER_NUMBER,
+    s.O_CUTTING_SERIAL_NUMBER, s.O_CUTTING_TYPE_ID,
+    CAST(s.O_VALVE_ARM_STATUS AS BIT),
+    CAST(s.O_IS_METER_INTERFERE AS BIT),
+    CAST(s.O_HAS_SEAL AS BIT),
+    s.PROBLEM_DESCRIPTION,
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(s.CREATED_USER_ID AS INT)),
+    CAST(s.CREATED_TIMESTAMP AS DATETIME),
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(s.UPDATED_USER_ID AS INT)),
+    CAST(s.UPDATED_TIMESTAMP AS DATETIME),
+    s.VERSION,
+    CAST(s.C_IS_BROKEN AS BIT),
+    s.I_MINUTE_NUMBER,
+    CAST(s.I_MINUTE_DATE AS DATETIME),
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(s.ASSIGNEE_USER_ID_2 AS INT)),
+    s.LONGITUDE, s.LATITUDE, s.CONTROL_CAUSE_ID, s.CONTROL_PRM_ID, s.CONTROL_DESCRIPTION,
+    s.C_METER_ID,
+    CAST(s.IS_PICTURE_SEND_LATER AS BIT),
+    CAST(s.IS_APPROVED AS BIT),
+    s.C_STAMP_YEAR, s.C_METER_DIAMETER_ID, s.C_METER_LINK_DIAMETER_ID, s.METER_ADDRESS,
+    s.C_RETROKIT_INDEX, s.M_RETROKIT_INDEX, s.WAREHOUSE_SHELF_ID, s.SACK_NUMBER, s.REKOR_SEAL_NUMBER,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL,
+    s.ID, s.WORK_ID,
+    s.ASSIGNEE_USER_ID, s.ASSIGNEE_USER_ID_2, s.CREATED_USER_ID, s.UPDATED_USER_ID,
+    s.CAUSE_RESULT_ID, s.CAUSE_RESULT_REASON_ID,
+    s.C_METER_ID, s.M_METER_ID, s.WAREHOUSE_SHELF_ID
+FROM izgazMGR.dbo.WO_WORK_RESULT AS s;
+
+SET IDENTITY_INSERT energy.dbo.LS_005_01_WO_WORK_RESULT OFF;
+```
+
+Idempotent re-run için `WHERE NOT EXISTS (… ABYS_ID = s.ID)` veya truncate+reload politikası ayrı tanımlanır.
+
+---
+
+## 9. Semantik not
+
+PCMS’te `WORK_ID` kolon adı korunur; FK anlamı **`LS_005_01_CS_APPOINTMENT.LREF`** (eski `WO_WORK.ID`).
+
+---
+
+## 10. Scriptler
+
+| Dosya | Rol |
+|---|---|
+| `540_WO_WORK_RESULT__setup.sql` | ABYS_ kolon + validate SP |
+| `541_WO_WORK_RESULT__migrate.sql` | Pass 1 dump INSERT (`SP_MIGRATE_LS005_WO_WORK_RESULT`) |
+
+```sql
+-- Deploy: deploy_create_all_sps.sql (540/541 dahil)
+EXEC energy.dbo.SP_MIGRATE_LS005_WO_WORK_RESULT
+     @RESUME = 1, @BATCH_SIZE = 5000, @DEBUG = 1;
+-- Hard reset:
+-- EXEC energy.dbo.SP_MIGRATE_LS005_WO_WORK_RESULT @HARD_RESET = 1, @BATCH_SIZE = 5000, @DEBUG = 1;
+```
+
+Proje sonu (henüz script yok): Pass 3 FK wire + Pass 4 `M_METER_*` UPDATE.

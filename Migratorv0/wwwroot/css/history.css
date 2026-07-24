@@ -1,0 +1,124 @@
+.history-container {
+    max-width: 1400px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.history-container h2 {
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.table-responsive {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.table {
+    color: var(--text-primary);
+}
+
+.table thead {
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    z-index: 10;
+}
+
+.table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.table tbody tr:hover {
+    background-color: var(--bg-tertiary);
+    cursor: pointer;
+}
+
+.badge {
+    padding: 0.35em 0.65em;
+    font-weight: 600;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border-color);
+}
+
+.comparison-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.improvement-positive {
+    color: var(--accent-green);
+    font-weight: bold;
+}
+
+.improvement-negative {
+    color: var(--accent-red);
+    font-weight: bold;
+}
+
+.improvement-neutral {
+    color: var(--text-secondary);
+}
+
+.filter-controls {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+pre {
+    background: var(--bg-dark);
+    color: var(--accent-green);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.progress {
+    background-color: var(--bg-dark);
+    height: 20px;
+}
+
+.progress-bar {
+    background-color: var(--accent-blue);
+    transition: width 0.3s ease;
+}
+
+.text-success {
+    color: var(--accent-green) !important;
+}
+
+.text-danger {
+    color: var(--accent-red) !important;
+}
+
+.text-warning {
+    color: var(--accent-yellow) !important;
+}
+
+.text-info {
+    color: var(--accent-blue) !important;
+}
+
+.spinner-border {
+    border-color: var(--accent-blue);
+    border-right-color: transparent;
+}

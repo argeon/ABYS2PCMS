@@ -1,0 +1,630 @@
+@page
+@model ArchitectureModel
+@{
+    ViewData["Title"] = "Architecture & Flow";
+}
+
+<div class="architecture-container">
+    <h2 class="mb-4">Migration Tool Architecture & Process Flow</h2>
+
+    <!-- Overall Architecture -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Overall Architecture</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+graph TB
+    subgraph UserLayer[User Layer]
+        Browser[Web Browser]
+        User[Developer/DBA]
+    end
+    
+    subgraph WebLayer[Web Layer - MigrationWeb]
+        UI[Razor Pages Dashboard]
+        SignalRHub[SignalR Hub]
+        PollingService[Checkpoint Polling Service<br/>Every 2 seconds]
+        DataService[Dashboard Data Service]
+    end
+    
+    subgraph EngineLayer[Migration Engine - Console App]
+        Orchestrator[Program.cs<br/>Main Orchestrator]
+        SchemaReader[Schema Reader<br/>Oracle Metadata]
+        TypeMapper[Type Mapper<br/>Oracle to MSSQL]
+        DdlGen[DDL Generator]
+        Extractor[Parallel Extractor<br/>8 workers]
+        Loader[Bulk Copy Loader<br/>SqlBulkCopy]
+        Validator[Data Validator]
+        ProgressWriter[Progress Writer]
+    end
+    
+    subgraph SharedLayer[Shared Library]
+        Models[11 Model Classes]
+        Enums[2 Enums]
+    end
+    
+    subgraph DataLayer[Data Layer]
+        Oracle[(Oracle DB<br/>Source)]
+        MSSQL[(SQL Server<br/>Target)]
+        SQLite[(SQLite<br/>Checkpoint DB)]
+    end
+    
+    User -->|1. Configures| Orchestrator
+    User -->|2. Monitors| Browser
+    
+    Browser <-->|SignalR WebSocket| SignalRHub
+    
+    Orchestrator -->|Reads Schema| SchemaReader
+    SchemaReader -->|Query Metadata| Oracle
+    
+    Orchestrator -->|Maps Types| TypeMapper
+    TypeMapper -->|Generates DDL| DdlGen
+    
+    Orchestrator -->|Extracts Data| Extractor
+    Extractor -->|SELECT with ROWID| Oracle
+    
+    Extractor -->|IDataReader Stream| Loader
+    Loader -->|SqlBulkCopy| MSSQL
+    
+    Orchestrator -->|Validates| Validator
+    Validator -->|COUNT/SUM| Oracle
+    Validator -->|COUNT/SUM| MSSQL
+    
+    Orchestrator -->|Writes Progress| ProgressWriter
+    ProgressWriter -->|INSERT| SQLite
+    
+    PollingService -->|Reads Every 2s| SQLite
+    PollingService -->|Broadcasts| SignalRHub
+    
+    SignalRHub -->|Push Updates| UI
+    UI -->|Renders| Browser
+    
+    EngineLayer -.->|References| SharedLayer
+    WebLayer -.->|References| SharedLayer
+    
+    style Oracle fill:#f96,stroke:#333,stroke-width:2px
+    style MSSQL fill:#6cf,stroke:#333,stroke-width:2px
+    style SQLite fill:#ff9,stroke:#333,stroke-width:2px
+    style Orchestrator fill:#9f6,stroke:#333,stroke-width:3px
+            </div>
+        </div>
+    </div>
+
+    <!-- 6-Phase Migration Process -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>6-Phase Migration Process</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+flowchart TD
+    Start([Migration Engine Start]) --> Init[Initialization<br/>Load Config, Serilog, SQLite]
+    
+    Init --> Phase1[PHASE 1: Schema Discovery]
+    Phase1 --> ReadSchema[Query Oracle Metadata<br/>ALL_TAB_COLUMNS<br/>ALL_CONSTRAINTS<br/>ALL_INDEXES]
+    ReadSchema --> FilterTables[Apply Table Filters<br/>Include/Exclude]
+    FilterTables --> BuildModel[Build Schema Model<br/>In-Memory]
+    
+    BuildModel --> Phase2[PHASE 2: DDL Generation]
+    Phase2 --> MapTypes[Type Mapper<br/>Oracle to MSSQL<br/>25+ type rules]
+    MapTypes --> GenDDL[Generate DDL<br/>CREATE TABLE<br/>ALTER TABLE<br/>CREATE INDEX]
+    GenDDL --> CollectWarnings[Collect Type<br/>Mapping Warnings]
+    CollectWarnings --> DetectCircular[Detect Circular<br/>Foreign Keys]
+    
+    DetectCircular --> Phase3[PHASE 3: DDL Execution]
+    Phase3 --> SetRecovery[ALTER DATABASE<br/>SET RECOVERY BULK_LOGGED]
+    SetRecovery --> CreateTables[Execute CREATE TABLE<br/>All tables]
+    CreateTables --> CreatePK[Create Primary Keys<br/>and Unique Constraints]
+    CreatePK --> SaveCheckpoint1[Save Checkpoint:<br/>Tables Created]
+    
+    SaveCheckpoint1 --> Phase4[PHASE 4: Parallel Data Migration]
+    Phase4 --> ForEachTable{For Each Table}
+    
+    ForEachTable --> EstimateRows[Estimate Row Count<br/>SELECT COUNT]
+    EstimateRows --> CalcPartitions[Calculate Partitions<br/>Based on DOP]
+    CalcPartitions --> CheckCheckpoint{Partition<br/>Completed?}
+    
+    CheckCheckpoint -->|Yes| Skip[Skip Partition]
+    CheckCheckpoint -->|No| Extract[Extract Data<br/>OracleParallelExtractor<br/>FetchSize=50MB]
+    
+    Extract --> Stream[Stream IDataReader]
+    Stream --> BulkCopy[SqlBulkCopy Load<br/>EnableStreaming=true<br/>BatchSize=50K]
+    BulkCopy --> UpdateProgress[Update Progress<br/>Every 50K rows]
+    UpdateProgress --> SaveCheckpoint2[Mark Partition DONE]
+    
+    SaveCheckpoint2 --> MorePartitions{More<br/>Partitions?}
+    MorePartitions -->|Yes| CheckCheckpoint
+    MorePartitions -->|No| NextTable{More<br/>Tables?}
+    
+    Skip --> MorePartitions
+    NextTable -->|Yes| ForEachTable
+    
+    NextTable -->|No| Phase5[PHASE 5: Post-Load DDL]
+    Phase5 --> CreateIndexes[Create All Indexes<br/>WITH COMPRESSION<br/>MAXDOP=8]
+    CreateIndexes --> CreateFK[Add Foreign Keys<br/>WITH CHECK]
+    CreateFK --> HandleErrors[Handle FK Errors<br/>Skip if circular]
+    
+    HandleErrors --> Phase6[PHASE 6: Validation]
+    Phase6 --> ValidateEach{For Each Table}
+    ValidateEach --> CountCompare[Compare COUNT<br/>Oracle vs MSSQL]
+    CountCompare --> SumCompare[Compare SUM PK<br/>if numeric]
+    SumCompare --> LogResult[Log Validation Result<br/>PASS/FAIL]
+    LogResult --> MoreTables{More<br/>Tables?}
+    
+    MoreTables -->|Yes| ValidateEach
+    MoreTables -->|No| Cleanup[Cleanup]
+    
+    Cleanup --> RestoreRecovery[ALTER DATABASE<br/>SET RECOVERY FULL]
+    RestoreRecovery --> LogStats[Log Completion Statistics]
+    LogStats --> UpdateStatus[Update Run Status:<br/>COMPLETED]
+    UpdateStatus --> EndNode([Migration Complete<br/>Take FULL BACKUP!])
+    
+    style Phase1 fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style Phase2 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style Phase3 fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Phase4 fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    style Phase5 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Phase6 fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+            </div>
+        </div>
+    </div>
+
+    <!-- Real-Time Update Flow -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Real-Time Dashboard Update Flow</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+sequenceDiagram
+    participant Browser
+    participant SignalRHub as SignalR Hub
+    participant PollingService as Polling Service<br/>Background
+    participant DataService as Dashboard Data Service
+    participant SQLite as SQLite Checkpoint DB
+    participant Engine as Migration Engine
+    
+    Note over Engine: Migration running...
+    
+    Engine->>SQLite: Write progress_events<br/>Every 50K rows
+    Engine->>SQLite: Update table_checkpoints<br/>Partition status
+    
+    loop Every 2 seconds
+        PollingService->>DataService: GetCurrentSummary
+        DataService->>SQLite: SELECT from migration_runs<br/>JOIN table_checkpoints
+        SQLite-->>DataService: Summary data
+        DataService-->>PollingService: MigrationSummary
+        
+        PollingService->>DataService: GetTableStatuses
+        DataService->>SQLite: SELECT from table_checkpoints<br/>GROUP BY table_name
+        SQLite-->>DataService: Table statuses
+        DataService-->>PollingService: List TableStatus
+        
+        PollingService->>DataService: GetRecentEvents 100
+        DataService->>SQLite: SELECT from progress_events<br/>ORDER BY id DESC LIMIT 100
+        SQLite-->>DataService: Recent events
+        DataService-->>PollingService: List ProgressEvent
+        
+        PollingService->>SignalRHub: Broadcast UpdateSummary
+        PollingService->>SignalRHub: Broadcast UpdateTables
+        PollingService->>SignalRHub: Broadcast UpdateEvents
+    end
+    
+    Browser->>SignalRHub: Connect WebSocket
+    SignalRHub-->>Browser: Connection established
+    
+    SignalRHub->>Browser: UpdateSummary summary
+    Note over Browser: Update progress bars<br/>Update counters<br/>Calculate ETA
+    
+    SignalRHub->>Browser: UpdateTables tables
+    Note over Browser: Update table grid<br/>Apply status colors<br/>Pulse animations
+    
+    SignalRHub->>Browser: UpdateEvents events
+    Note over Browser: Prepend to log stream<br/>Apply filters<br/>Auto-scroll
+    
+    Browser->>SignalRHub: User clicks Export Report
+    SignalRHub->>DataService: GetCurrentSummary
+    DataService-->>SignalRHub: Full report data
+    SignalRHub-->>Browser: JSON report
+    Note over Browser: Download JSON file
+            </div>
+        </div>
+    </div>
+
+    <!-- Type Mapping Flow -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Type Mapping Process</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+flowchart LR
+    subgraph Oracle[Oracle Source Types]
+        O1[NUMBER]
+        O2[VARCHAR2]
+        O3[DATE]
+        O4[TIMESTAMP]
+        O5[CLOB/BLOB]
+        O6[ROWID]
+    end
+    
+    subgraph TypeMapper[Type Mapper Logic]
+        Analyze[Analyze Type<br/>Precision<br/>Scale]
+        Rules[Apply Mapping Rules<br/>25+ type mappings]
+        Warning[Generate Warning<br/>if data loss risk]
+    end
+    
+    subgraph MSSQL[SQL Server Target Types]
+        M1[INT/BIGINT/DECIMAL]
+        M2[NVARCHAR]
+        M3[DATETIME2]
+        M4[DATETIME2/DATETIMEOFFSET]
+        M5[NVARCHAR MAX/<br/>VARBINARY MAX]
+        M6[SKIP Column<br/>+ Warning]
+    end
+    
+    O1 --> Analyze
+    O2 --> Analyze
+    O3 --> Analyze
+    O4 --> Analyze
+    O5 --> Analyze
+    O6 --> Analyze
+    
+    Analyze --> Rules
+    Rules --> Warning
+    
+    Warning -->|NUMBER p,s| M1
+    Warning -->|VARCHAR2| M2
+    Warning -->|DATE warning| M3
+    Warning -->|TIMESTAMP| M4
+    Warning -->|CLOB/BLOB| M5
+    Warning -->|ROWID warning| M6
+    
+    style TypeMapper fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style Oracle fill:#f96,stroke:#333,stroke-width:2px
+    style MSSQL fill:#6cf,stroke:#333,stroke-width:2px
+            </div>
+            
+            <div class="mt-4">
+                <h5>Type Mapping Examples</h5>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Oracle Type</th>
+                            <th>MSSQL Type</th>
+                            <th>Warning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>NUMBER(10,0)</code></td>
+                            <td><code>INT</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>NUMBER(38,4)</code></td>
+                            <td><code>DECIMAL(38,4)</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>NUMBER</code></td>
+                            <td><code>DECIMAL(38,10)</code></td>
+                            <td><span class="badge bg-warning">Review precision</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>VARCHAR2(100)</code></td>
+                            <td><code>NVARCHAR(100)</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>DATE</code></td>
+                            <td><code>DATETIME2(0)</code></td>
+                            <td><span class="badge bg-warning">Oracle DATE has time component</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>TIMESTAMP(6)</code></td>
+                            <td><code>DATETIME2(6)</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>CLOB</code></td>
+                            <td><code>NVARCHAR(MAX)</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>BLOB</code></td>
+                            <td><code>VARBINARY(MAX)</code></td>
+                            <td><span class="badge bg-success">None</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>ROWID</code></td>
+                            <td><code>SKIPPED</code></td>
+                            <td><span class="badge bg-danger">Not portable - column skipped</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checkpoint & Resume -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Checkpoint & Resume Mechanism</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+stateDiagram-v2
+    [*] --> CheckExistingRun: Engine Start
+    
+    CheckExistingRun --> CreateNewRun: No existing run
+    CheckExistingRun --> ResumeRun: Found RUNNING status
+    
+    CreateNewRun --> InitializeTables: runid = 1
+    ResumeRun --> LoadCheckpoints: Load previous runid
+    
+    InitializeTables --> TablePending: Create checkpoint records
+    LoadCheckpoints --> CheckPartitionStatus: Query table_checkpoints
+    
+    CheckPartitionStatus --> PartitionDone: status = DONE
+    CheckPartitionStatus --> PartitionFailed: status = FAILED
+    CheckPartitionStatus --> PartitionPending: status = PENDING
+    
+    PartitionDone --> Skip: Skip this partition
+    PartitionFailed --> Retry: Retry migration
+    PartitionPending --> Process: Start migration
+    
+    TablePending --> Process: Start new partition
+    
+    Process --> Running: status = RUNNING<br/>Update starttime
+    Running --> UpdateProgress: Every 50K rows<br/>Update rowsprocessed
+    
+    UpdateProgress --> Success: No errors
+    UpdateProgress --> Error: Exception caught
+    
+    Success --> MarkDone: status = DONE<br/>Update endtime
+    Error --> RetryLogic: Attempt less than 3
+    
+    RetryLogic --> Running: Yes retry
+    RetryLogic --> MarkFailed: No mark FAILED<br/>Save errormessage
+    
+    MarkDone --> NextPartition: More partitions
+    MarkFailed --> NextPartition: Continue with others
+    Skip --> NextPartition: Check next
+    
+    NextPartition --> CheckPartitionStatus: Yes
+    NextPartition --> TableComplete: No all done
+    
+    TableComplete --> NextTable: More tables
+    NextTable --> InitializeTables: Yes
+    NextTable --> MigrationComplete: No
+    
+    MigrationComplete --> [*]: Update run status = COMPLETED
+            </div>
+        </div>
+    </div>
+
+    <!-- Wizard Flow -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Wizard Configuration Flow</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+flowchart TD
+    Start([User Opens Wizard]) --> Step1[Step 1: Oracle Connection]
+    
+    Step1 --> InputOracle[Enter Oracle Credentials<br/>Host, Port, Service<br/>Username, Password, Schema]
+    InputOracle --> TestOracle[Click Test Connection]
+    TestOracle --> OracleAPI[POST /api/wizard/test-oracle]
+    
+    OracleAPI --> OracleSuccess{Connection<br/>Success?}
+    OracleSuccess -->|Yes| ShowTableCount[Display: Connected<br/>Found X tables]
+    OracleSuccess -->|No| ShowOracleError[Display Error Message]
+    ShowOracleError --> InputOracle
+    
+    ShowTableCount --> EnableNext1[Enable Next Button]
+    EnableNext1 --> Step2[Step 2: MSSQL Connection]
+    
+    Step2 --> InputMssql[Enter MSSQL Credentials<br/>Server, Database<br/>Auth Type, Credentials]
+    InputMssql --> TestMssql[Click Test Connection]
+    TestMssql --> MssqlAPI[POST /api/wizard/test-mssql]
+    
+    MssqlAPI --> MssqlSuccess{Connection<br/>Success?}
+    MssqlSuccess -->|Yes| ShowDbName[Display: Connected<br/>Database: X]
+    MssqlSuccess -->|No| ShowMssqlError[Display Error Message]
+    ShowMssqlError --> InputMssql
+    
+    ShowDbName --> EnableNext2[Enable Next Button]
+    EnableNext2 --> Step3[Step 3: Select Tables]
+    
+    Step3 --> LoadTables[Auto-load Tables from Oracle]
+    LoadTables --> TablesAPI[POST /api/wizard/list-tables]
+    TablesAPI --> DisplayTables[Display Table List<br/>with Row Counts]
+    
+    DisplayTables --> UserSelect[User Selects Tables<br/>Checkboxes]
+    UserSelect --> ShowSelected[Show Selected: X tables]
+    ShowSelected --> EnableNext3[Enable Next Button]
+    
+    EnableNext3 --> Step4[Step 4: Configure and Start]
+    Step4 --> ShowSummary[Display Migration Summary<br/>Source, Target, Tables]
+    ShowSummary --> ConfigPerf[Configure Performance<br/>DOP, Batch Size, Fetch Size]
+    
+    ConfigPerf --> ClickStart[User Clicks Start Migration]
+    ClickStart --> Confirm{Confirm<br/>Dialog?}
+    Confirm -->|Cancel| ConfigPerf
+    Confirm -->|OK| StartAPI[POST /api/wizard/start-migration]
+    
+    StartAPI --> SaveConfig[Save appsettings.json<br/>with user configuration]
+    SaveConfig --> LaunchEngine[Launch dotnet run<br/>MigrationEngine process]
+    LaunchEngine --> Redirect[Redirect to Dashboard]
+    
+    Redirect --> Dashboard[Dashboard Page<br/>Real-time monitoring]
+    
+    style Step1 fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style Step2 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style Step3 fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Step4 fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Components -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Dashboard UI Components</h4>
+        </div>
+        <div class="card-body">
+            <div class="mermaid">
+graph TD
+    subgraph Dashboard[Index.cshtml - Dashboard Layout]
+        Header[Header: Overall Progress Card]
+        TableGrid[Table Status Grid]
+        LogStream[Log Stream Panel]
+        Controls[Control Buttons]
+    end
+    
+    subgraph HeaderComponents[Overall Progress Components]
+        Stats[Stat Boxes<br/>Total/Completed/Running/Failed]
+        ProgressBar[Overall Progress Bar<br/>0-100%]
+        Metrics[Metrics<br/>Elapsed Time<br/>Throughput rows/sec<br/>Status]
+    end
+    
+    subgraph TableGridComponents[Table Grid Components]
+        TableRow[Table Row<br/>- Table Name<br/>- Status Badge<br/>- Progress %<br/>- Rows Loaded/Total]
+        StatusColors[Status Styling<br/>- Pending: Gray<br/>- Running: Blue Pulse<br/>- Done: Green<br/>- Failed: Red]
+    end
+    
+    subgraph LogStreamComponents[Log Stream Components]
+        LogEntries[Log Entries<br/>Last 100 events]
+        Filters[Filter Buttons<br/>All/Info/Warning/Error]
+        AutoScroll[Auto-scroll Toggle]
+    end
+    
+    subgraph ControlsComponents[Control Buttons]
+        Export[Export Report<br/>Download JSON]
+    end
+    
+    Dashboard --> Header
+    Dashboard --> TableGrid
+    Dashboard --> LogStream
+    Dashboard --> Controls
+    
+    Header --> HeaderComponents
+    TableGrid --> TableGridComponents
+    LogStream --> LogStreamComponents
+    Controls --> ControlsComponents
+    
+    subgraph JavaScript[dashboard.js - Client Logic]
+        SignalRClient[SignalR Connection<br/>Auto-reconnect]
+        UpdateFunctions[Update Functions<br/>- updateOverallProgress<br/>- updateTableGrid<br/>- appendToLogStream]
+    end
+    
+    SignalRClient -->|on UpdateSummary| Stats
+    SignalRClient -->|on UpdateSummary| ProgressBar
+    SignalRClient -->|on UpdateSummary| Metrics
+    
+    SignalRClient -->|on UpdateTables| TableRow
+    SignalRClient -->|on UpdateTables| StatusColors
+    
+    SignalRClient -->|on UpdateEvents| LogEntries
+    
+    style Dashboard fill:#1a1a1a,stroke:#4a9eff,stroke-width:3px,color:#e0e0e0
+    style Header fill:#2d2d2d,stroke:#4a9eff,color:#e0e0e0
+    style TableGrid fill:#2d2d2d,stroke:#4caf50,color:#e0e0e0
+    style LogStream fill:#2d2d2d,stroke:#ffc107,color:#e0e0e0
+    style Controls fill:#2d2d2d,stroke:#f44336,color:#e0e0e0
+            </div>
+        </div>
+    </div>
+
+    <!-- Key Features -->
+    <div class="card">
+        <div class="card-header">
+            <h4>Key Features Summary</h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>Migration Engine</h5>
+                    <ul>
+                        <li><strong>6 Migration Phases</strong> - Schema, DDL, Load, Index, FK, Validate</li>
+                        <li><strong>Parallel Processing</strong> - Configurable workers (default 8)</li>
+                        <li><strong>Smart Partitioning</strong> - ROWID or PK-based ranges</li>
+                        <li><strong>Resume Support</strong> - SQLite checkpoint system</li>
+                        <li><strong>Type Mapper</strong> - 25+ Oracle to MSSQL type rules</li>
+                        <li><strong>Data Validation</strong> - COUNT + SUM checksum verification</li>
+                        <li><strong>Error Handling</strong> - Retry logic, partition-level isolation</li>
+                        <li><strong>Performance</strong> - Streaming, bulk copy, index compression</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h5>Web Dashboard</h5>
+                    <ul>
+                        <li><strong>Interactive Wizard</strong> - 4-step configuration process</li>
+                        <li><strong>Connection Testing</strong> - Test Oracle and MSSQL before migration</li>
+                        <li><strong>Table Selection</strong> - Visual table picker with row counts</li>
+                        <li><strong>Real-Time Updates</strong> - SignalR WebSocket (2s polling)</li>
+                        <li><strong>Live Monitoring</strong> - Progress bars, throughput, ETA</li>
+                        <li><strong>Log Stream</strong> - Filterable real-time logs</li>
+                        <li><strong>Dark Theme</strong> - Bootstrap 5 responsive design</li>
+                        <li><strong>Export Reports</strong> - JSON download functionality</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+    mermaid.initialize({ 
+        startOnLoad: true,
+        theme: 'dark',
+        themeVariables: {
+            darkMode: true,
+            background: '#1a1a1a',
+            primaryColor: '#4a9eff',
+            primaryTextColor: '#e0e0e0',
+            primaryBorderColor: '#4a9eff',
+            lineColor: '#4a9eff',
+            secondaryColor: '#2d2d2d',
+            tertiaryColor: '#3a3a3a'
+        }
+    });
+</script>
+
+<style>
+.architecture-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.mermaid {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 2rem;
+    margin: 1rem 0;
+}
+
+.card-body h5 {
+    color: var(--accent-blue);
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+.card-body ul {
+    padding-left: 1.5rem;
+}
+
+.card-body ul li {
+    margin-bottom: 0.5rem;
+}
+
+code {
+    background: var(--bg-dark);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.875rem;
+}
+</style>

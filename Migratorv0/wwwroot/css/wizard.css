@@ -1,0 +1,312 @@
+.wizard-container {
+    max-width: 1000px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.wizard-progress {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 3rem;
+    position: relative;
+}
+
+.wizard-progress::before {
+    content: '';
+    position: absolute;
+    top: 25px;
+    left: 25px;
+    right: 25px;
+    height: 2px;
+    background: var(--border-color);
+    z-index: 0;
+}
+
+.wizard-progress .step {
+    flex: 1;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+}
+
+.wizard-progress .step-number {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin: 0 auto 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.wizard-progress .step.active .step-number {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: white;
+    box-shadow: 0 0 0 4px rgba(74, 158, 255, 0.2);
+}
+
+.wizard-progress .step.completed .step-number {
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+    color: white;
+    position: relative;
+}
+
+/* Tamamlanan adımda numera yerine ✓ */
+.wizard-progress .step.completed .step-number::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: var(--accent-green);
+    border-radius: 50%;
+}
+
+.wizard-progress .step-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.wizard-progress .step.active .step-label {
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.wizard-step {
+    display: none;
+}
+
+.wizard-step.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.wizard-navigation {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.table-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 1rem;
+}
+
+.table-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.table-item:last-child {
+    border-bottom: none;
+}
+
+.table-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.table-checkbox {
+    cursor: pointer;
+}
+
+.form-check-label {
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.summary-box {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+}
+
+.alert-info {
+    background-color: rgba(74, 158, 255, 0.1);
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+}
+
+.alert-warning {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: var(--accent-yellow);
+    color: var(--text-primary);
+}
+
+.alert-success {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-color: var(--accent-green);
+    color: var(--text-primary);
+}
+
+.alert-danger {
+    background-color: rgba(244, 67, 54, 0.1);
+    border-color: var(--accent-red);
+    color: var(--text-primary);
+}
+
+/* Settings option list (paralel partition / staging / switch / bulk-logged) */
+.settings-option-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+
+.settings-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    transition: background 0.15s ease;
+}
+
+.settings-option:last-child {
+    border-bottom: none;
+}
+
+.settings-option:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.settings-toggle {
+    flex-shrink: 0;
+    padding: 0;
+    min-width: 40px;
+    padding-top: 2px;
+}
+
+.settings-toggle .form-check-input {
+    margin: 0;
+}
+
+.settings-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-label {
+    display: block;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+    cursor: pointer;
+}
+
+.settings-desc {
+    font-size: 0.77rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.settings-note {
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 0.35rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.settings-note-info {
+    background: rgba(74, 158, 255, 0.08);
+    border: 1px solid rgba(74, 158, 255, 0.25);
+    color: var(--text-primary);
+}
+
+.settings-note-success {
+    background: rgba(76, 175, 80, 0.08);
+    border: 1px solid rgba(76, 175, 80, 0.25);
+    color: var(--text-primary);
+}
+
+.settings-note-warning {
+    background: rgba(255, 193, 7, 0.08);
+    border: 1px solid rgba(255, 193, 7, 0.25);
+    color: var(--text-primary);
+}
+
+.settings-extra {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.settings-extra-label {
+    font-size: 0.77rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    margin: 0;
+}
+
+.settings-extra-input {
+    width: 72px !important;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+}
+
+.settings-extra-hint {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .wizard-progress {
+        flex-wrap: wrap;
+    }
+    
+    .wizard-progress .step {
+        flex: 0 0 50%;
+        margin-bottom: 1rem;
+    }
+    
+    .wizard-progress::before {
+        display: none;
+    }
+    
+    .wizard-navigation {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .wizard-navigation button {
+        width: 100%;
+    }
+}

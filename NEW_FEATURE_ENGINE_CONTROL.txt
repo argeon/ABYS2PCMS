@@ -1,0 +1,235 @@
+════════════════════════════════════════════════════════════════════
+    🚀 YENİ ÖZELLİK: WEB UI'DAN ENGINE KONTROLÜ
+════════════════════════════════════════════════════════════════════
+
+✅ TAMAMLANDI: Engine'i Web UI'dan Tek Butonla Başlatma
+
+════════════════════════════════════════════════════════════════════
+📋 ÖZELLIK ÖZETİ
+════════════════════════════════════════════════════════════════════
+
+1. ✅ Dashboard'dan "Start Engine" butonu
+2. ✅ Start Page'den "Start Engine Now" butonu
+3. ✅ Otomatik build + start
+4. ✅ Real-time status monitoring (5 sn interval)
+5. ✅ Stop/Start kontrol
+6. ✅ Process ID tracking
+7. ✅ Console penceresi gösterimi
+8. ✅ Graceful shutdown
+9. ✅ Configuration kontrolü
+10. ✅ Duplicate process kontrolü
+
+════════════════════════════════════════════════════════════════════
+🎯 KULLANICI DENEYİMİ
+════════════════════════════════════════════════════════════════════
+
+ÖNCESİ (Manuel):
+  1. Web UI başlat
+  2. Browser'da wizard
+  3. Config kaydet
+  4. Terminal aç          ← Kullanıcı terminal bilmek zorunda
+  5. cd MigrationEngine   ← Komut yazması gerekiyor
+  6. dotnet run           ← Hata riski
+  7. Dashboard'a dön
+  ─────────────
+  7 ADIM ❌
+
+SONRASI (Otomatik):
+  1. Web UI başlat
+  2. Browser'da wizard
+  3. Config kaydet
+  4. "Start Engine Now" butonu 🚀
+  ─────────────
+  4 ADIM ✅
+
+KAZANIM: %43 daha az adım! 🎉
+
+════════════════════════════════════════════════════════════════════
+📂 YENİ/DEĞİŞEN DOSYALAR
+════════════════════════════════════════════════════════════════════
+
+BACKEND (YENİ):
+  ✅ Controllers/EngineController.cs
+     - POST /api/engine/start
+     - POST /api/engine/stop
+     - GET  /api/engine/status
+     - POST /api/engine/build
+
+FRONTEND (GÜNCELLENDİ):
+  ✅ Pages/Index.cshtml
+     - Engine Control Panel eklendi
+     - Start/Stop butonları
+     - Status badge
+
+  ✅ Pages/Start.cshtml
+     - "Start Engine Now" butonu
+     - Otomatik başlatma
+
+  ✅ wwwroot/js/dashboard.js
+     - startMigrationEngine()
+     - stopMigrationEngine()
+     - checkEngineStatus()
+     - startEngineStatusMonitoring()
+
+DOKÜMANTASYON (YENİ):
+  ✅ ENGINE_CONTROL_FEATURE.md     (Teknik detaylar)
+  ✅ QUICK_ENGINE_START.md         (Kullanım rehberi)
+  ✅ NEW_FEATURE_ENGINE_CONTROL.txt (Bu dosya)
+
+DOKÜMANTASYON (GÜNCELLENDİ):
+  ✅ README.md
+  ✅ INDEX.md
+
+════════════════════════════════════════════════════════════════════
+🔧 TEKNİK DETAYLAR
+════════════════════════════════════════════════════════════════════
+
+API ENDPOINTS:
+  POST /api/engine/start
+    → Engine'i başlat
+    → Otomatik build
+    → Process tracking
+    
+  POST /api/engine/stop
+    → Graceful shutdown
+    → CTRL+C simulation
+    → Process tree cleanup
+    
+  GET /api/engine/status
+    → Running/Stopped/Error
+    → PID, uptime, start time
+    → Configuration check
+    
+  POST /api/engine/build
+    → dotnet build -c Release
+    → Error handling
+
+PROCESS MANAGEMENT:
+  ✅ Process.Start() ile engine başlatma
+  ✅ Console window gösterimi (CreateNoWindow = false)
+  ✅ PID tracking
+  ✅ Thread-safe (lock mekanizması)
+  ✅ Graceful shutdown (5 sn timeout)
+  ✅ Process tree kill
+  ✅ Duplicate process check
+
+MONITORING:
+  ✅ 5 saniye interval
+  ✅ Otomatik status update
+  ✅ Status badge (Running/Stopped/Error)
+  ✅ UI buton durumu (Start/Stop)
+
+════════════════════════════════════════════════════════════════════
+🚀 KULLANIM ÖRNEKLERİ
+════════════════════════════════════════════════════════════════════
+
+ÖRNEK 1: Dashboard'dan Başlatma
+  1. http://localhost:5000
+  2. "Start Engine" butonuna bas
+  3. ✅ Engine başladı!
+
+ÖRNEK 2: Wizard Flow
+  1. http://localhost:5000/wizard
+  2. 4 adımı tamamla
+  3. "Save & Continue"
+  4. "Start Engine Now"
+  5. ✅ Dashboard'da monitoring!
+
+ÖRNEK 3: Restart
+  1. Dashboard'da "Stop Engine"
+  2. Onay ver
+  3. "Start Engine"
+  4. ✅ Checkpoint'ten devam!
+
+════════════════════════════════════════════════════════════════════
+📊 STATUS DURUMU
+════════════════════════════════════════════════════════════════════
+
+Status Badge Renkleri:
+  🟢 RUNNING   → Yeşil   → Stop butonu aktif
+  ⚪ STOPPED   → Gri     → Start butonu aktif
+  🟡 STARTING  → Sarı    → Butonlar disabled
+  🟡 STOPPING  → Sarı    → Butonlar disabled
+  🔴 ERROR     → Kırmızı → Start butonu aktif
+
+════════════════════════════════════════════════════════════════════
+✅ TEST SONUÇLARI
+════════════════════════════════════════════════════════════════════
+
+BUILD:
+  ✅ MigrationShared  → SUCCESS
+  ✅ MigrationEngine  → SUCCESS
+  ✅ Migratorv0       → SUCCESS
+  ✅ Solution build   → SUCCESS (0 warnings, 0 errors)
+
+FEATURES:
+  ✅ Dashboard start button
+  ✅ Start page button
+  ✅ Otomatik build
+  ✅ Process başlatma
+  ✅ Status monitoring
+  ✅ Stop butonu
+  ✅ Graceful shutdown
+  ✅ Console window
+  ✅ Error handling
+  ✅ Configuration check
+
+════════════════════════════════════════════════════════════════════
+📖 DOKÜMANTASYON
+════════════════════════════════════════════════════════════════════
+
+Kullanıcı İçin:
+  📘 QUICK_ENGINE_START.md        → Hızlı başlangıç rehberi
+  📘 BASLANGIC.md                 → Genel başlangıç
+  📘 INDEX.md                     → Tüm dokümantasyon
+
+Geliştirici İçin:
+  📗 ENGINE_CONTROL_FEATURE.md    → API & teknik detaylar
+  📗 README.md                    → Proje dokümantasyonu
+
+════════════════════════════════════════════════════════════════════
+🎉 SONUÇ
+════════════════════════════════════════════════════════════════════
+
+✅ Engine artık Web UI'dan tek butonla başlatılabiliyor!
+
+AVANTAJLAR:
+  ✅ Terminal bilgisi gereksiz
+  ✅ Hata riski azaldı
+  ✅ Kullanım kolaylaştı
+  ✅ %43 daha az adım
+  ✅ Real-time monitoring
+  ✅ Professional UX
+
+KULLANIM:
+  1. Web UI başlat: .\start-all.ps1
+  2. Wizard: http://localhost:5000/wizard
+  3. "Start Engine Now" butonuna bas
+  4. ✅ TAMAM!
+
+════════════════════════════════════════════════════════════════════
+🔗 İLGİLİ LİNKLER
+════════════════════════════════════════════════════════════════════
+
+Hızlı Başlangıç:
+  → QUICK_ENGINE_START.md
+  
+Teknik Detaylar:
+  → ENGINE_CONTROL_FEATURE.md
+  
+Tüm Özellikler:
+  → README.md
+  
+Dokümantasyon İndeksi:
+  → INDEX.md
+
+════════════════════════════════════════════════════════════════════
+✨ ÖZELLİK TARİHİ
+════════════════════════════════════════════════════════════════════
+
+Talep Tarihi:   2026-04-20
+Tamamlanma:     2026-04-20
+Durum:          ✅ COMPLETED
+Versiyon:       1.0
+
+════════════════════════════════════════════════════════════════════

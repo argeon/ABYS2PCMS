@@ -1,0 +1,75 @@
+@page "/transfer/compare"
+@model MigrationWeb.Pages.Transfer.CompareModel
+@{
+    ViewData["Title"] = "Karşılaştırma";
+}
+
+<link href="~/css/transfer.css" rel="stylesheet" />
+
+<div class="transfer-studio">
+    <h2 class="mb-4">Karşılaştırma & Validasyon</h2>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Recipe</label>
+                    <select class="form-select" id="cmpRecipe"></select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Faz</label>
+                    <select class="form-select" id="cmpPhase">
+                        <option value="INSERT">INSERT</option>
+                        <option value="UPDATE">UPDATE</option>
+                        <option value="ALL">ALL</option>
+                    </select>
+                </div>
+                <div class="col-md-3 form-check">
+                    <input class="form-check-input" type="checkbox" id="cmpIncludeContent" checked />
+                    <label class="form-check-label">Örnek satır içeriği</label>
+                </div>
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-primary" id="btnRunCompare">Karşılaştır</button>
+                </div>
+            </div>
+            <div id="cmpStatus" class="small text-muted mt-2"></div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">Metrik sonuçları</div>
+                <div class="card-body p-0">
+                    <table class="table table-dark table-sm mb-0">
+                        <thead><tr><th>Gate</th><th>Kaynak</th><th>Hedef</th><th></th></tr></thead>
+                        <tbody id="metricResultsBody"><tr><td colspan="4" class="text-muted p-3">Henüz çalıştırılmadı</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">İçerik farkları (mismatch)</div>
+                <div class="card-body p-0 table-responsive" style="max-height:420px;overflow:auto">
+                    <table class="table table-dark table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Bridge key</th>
+                                <th>Kolon</th>
+                                <th>Kaynak</th>
+                                <th>Hedef</th>
+                                <th>Kural</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mismatchBody"><tr><td colspan="5" class="text-muted p-3">—</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/transfer/transfer-compare.js"></script>
+}

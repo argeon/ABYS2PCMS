@@ -1,0 +1,224 @@
+@page "/transfer/recipe-edit"
+@model MigrationWeb.Pages.Transfer.RecipeEditModel
+@{
+    ViewData["Title"] = "Recipe Düzenle";
+    var recipeId = Model.Id;
+}
+
+<link href="~/css/transfer.css" rel="stylesheet" />
+
+<div class="transfer-studio" data-recipe-id="@(recipeId?.ToString() ?? "")">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0" id="recipeTitle">Aktarım tanımı</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnBack">← Liste</button>
+            <button type="button" class="btn btn-success btn-sm" id="btnSaveRecipe">Kaydet</button>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs transfer-tabs mb-3" id="recipeTabs" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabGeneral">1. Bağlantı & Tablo</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabBridge">2. Bridge Key</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMapping">3. Kolon Mapping</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPhases">4. Fazlar & FK</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabValidation">5. Validasyon</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabJson">JSON</button></li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="tabGeneral">
+            <div class="card"><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Migration ID</label>
+                        <input type="text" class="form-control" id="fldMigrationId" placeholder="IT_USER" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Recipe adı</label>
+                        <input type="text" class="form-control" id="fldName" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Sıra</label>
+                        <input type="number" class="form-control" id="fldSortOrder" value="0" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Durum</label>
+                        <select class="form-select" id="fldStatus">
+                            <option value="Draft">Taslak</option>
+                            <option value="Approved">Onaylı</option>
+                            <option value="Archived">Arşiv</option>
+                        </select>
+                    </div>
+                </div>
+                <hr />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6>Kaynak MSSQL</h6>
+                        <label class="form-label">Profil</label>
+                        <select class="form-select mb-2" id="fldSourceProfile"></select>
+                        <div class="row g-2">
+                            <div class="col-4"><input class="form-control" id="fldSourceDb" placeholder="Veritabanı" /></div>
+                            <div class="col-4"><input class="form-control" id="fldSourceSchema" value="dbo" /></div>
+                            <div class="col-4"><input class="form-control" id="fldSourceTable" placeholder="Tablo" /></div>
+                        </div>
+                        <button type="button" class="btn btn-outline-light btn-sm mt-2" id="btnTestSource">Bağlantı test</button>
+                        <button type="button" class="btn btn-outline-light btn-sm mt-2" id="btnLoadSourceTables">Tabloları yükle</button>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Hedef MSSQL</h6>
+                        <label class="form-label">Profil</label>
+                        <select class="form-select mb-2" id="fldTargetProfile"></select>
+                        <div class="row g-2">
+                            <div class="col-4"><input class="form-control" id="fldTargetDb" placeholder="Veritabanı" /></div>
+                            <div class="col-4"><input class="form-control" id="fldTargetSchema" value="dbo" /></div>
+                            <div class="col-4"><input class="form-control" id="fldTargetTable" placeholder="Tablo" /></div>
+                        </div>
+                        <button type="button" class="btn btn-outline-light btn-sm mt-2" id="btnTestTarget">Bağlantı test</button>
+                        <button type="button" class="btn btn-outline-light btn-sm mt-2" id="btnLoadTargetColumns">Hedef kolonları yükle</button>
+                    </div>
+                </div>
+                <div id="generalStatus" class="small text-muted mt-2"></div>
+            </div></div>
+        </div>
+
+        <div class="tab-pane fade" id="tabBridge">
+            <div class="card"><div class="card-body row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Kaynak key kolonu</label>
+                    <input class="form-control" id="fldSourceKey" placeholder="ID" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Hedef bridge kolonu</label>
+                    <input class="form-control" id="fldTargetBridge" placeholder="ABYS_ID" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Hedef identity PK</label>
+                    <input class="form-control" id="fldTargetIdentity" placeholder="USERID" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Kaynak filtre (WHERE)</label>
+                    <input class="form-control" id="fldSourceFilter" placeholder="opsiyonel" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Batch key kolonu</label>
+                    <input class="form-control" id="fldBatchKey" placeholder="ID" />
+                </div>
+                <div class="col-md-3"><label class="form-label">Batch boyutu</label><input type="number" class="form-control" id="fldBatchSize" value="2000" /></div>
+                <div class="col-md-3"><label class="form-label">Max hata</label><input type="number" class="form-control" id="fldMaxErrors" value="200" /></div>
+                <div class="col-md-3 form-check mt-4"><input class="form-check-input" type="checkbox" id="fldResume" checked /><label class="form-check-label">Resume</label></div>
+            </div></div>
+        </div>
+
+        <div class="tab-pane fade" id="tabMapping">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between">
+                    <span>INSERT fazı — kolon mapping</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddMapping">+ Satır</button>
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-dark table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Hedef kolon</th>
+                                <th>Kaynak ifade (T-SQL)</th>
+                                <th>Faz 2</th>
+                                <th>İçerik val.</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="mappingTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <button type="button" class="btn btn-outline-info btn-sm mt-2" id="btnGenValidationFromMapping">Mapping’den içerik kuralları üret</button>
+        </div>
+
+        <div class="tab-pane fade" id="tabPhases">
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between">
+                    <span>UPDATE fazı — FK çözümleme</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddFk">+ FK adımı</button>
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-dark table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Tablo</th>
+                                <th>Kolon</th>
+                                <th>Lookup tablo</th>
+                                <th>Bridge</th>
+                                <th>Hedef kolon</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="fkTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="tabValidation">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">Metrik validasyonlar</div>
+                        <div class="card-body" id="metricChecks">
+                            <div class="form-check"><input class="form-check-input metric-gate" type="checkbox" data-gate="RowCount" checked id="mRowCount" /><label class="form-check-label" for="mRowCount">Satır sayısı</label></div>
+                            <div class="form-check"><input class="form-check-input metric-gate" type="checkbox" data-gate="MissingByBridge" checked id="mMissing" /><label class="form-check-label" for="mMissing">Bridge ile eksik satır</label></div>
+                            <div class="form-check"><input class="form-check-input metric-gate" type="checkbox" data-gate="BridgeNotNull" checked id="mBridge" /><label class="form-check-label" for="mBridge">Bridge doluluk</label></div>
+                            <div class="form-check"><input class="form-check-input metric-gate" type="checkbox" data-gate="SumBridgeKey" id="mSum" /><label class="form-check-label" for="mSum">Bridge key toplamı</label></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">İçerik karşılaştırma</div>
+                        <div class="card-body">
+                            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="fldContentEnabled" checked /><label class="form-check-label">Etkin</label></div>
+                            <label class="form-label">Strateji</label>
+                            <select class="form-select mb-2" id="fldContentStrategy">
+                                <option value="SampleByKey">Örnek key (rastgele)</option>
+                                <option value="FixedKeys">Sabit key listesi</option>
+                            </select>
+                            <label class="form-label">Örnek sayısı</label>
+                            <input type="number" class="form-control mb-2" id="fldSampleSize" value="100" />
+                            <label class="form-label">Sabit keys (virgülle)</label>
+                            <input class="form-control" id="fldFixedKeys" placeholder="1,5,99" />
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>İçerik kuralları</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddContentRule">+ Kural</button>
+                        </div>
+                        <div class="card-body p-0 table-responsive">
+                            <table class="table table-dark table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Etiket</th>
+                                        <th>Kaynak ifade</th>
+                                        <th>Hedef ifade</th>
+                                        <th>Karşılaştırma</th>
+                                        <th>Faz</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contentRulesBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="tabJson">
+            <textarea class="form-control font-monospace" id="jsonPreview" rows="24" readonly></textarea>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/transfer/transfer-recipe-edit.js"></script>
+}

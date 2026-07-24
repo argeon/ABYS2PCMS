@@ -1,0 +1,18 @@
+{
+  "sourceSrid": null,
+  "readingPeriod": "202607",
+  "oracleConnectionString": "User Id=SMS;Password=RepSmS26!IzGx;Data Source=172.16.1.201:1521/izgaz;",
+  "oracleSchema": "SMS",
+  "mssqlConnectionString": "Data Source=172.16.1.192;Initial Catalog=izgazMGR;User ID=pcms;Password=12345;Trust Server Certificate=True",
+  "targetTableName": "CS_READING_PLAN",
+  "degreeOfParallelism": 4,
+  "batchSize": 50000,
+  "fetchSizeMB": 50,
+  "migratePrimaryKeys": false,
+  "migrateForeignKeys": false,
+  "migrateIndexes": false,
+  "migrateUniqueConstraints": false,
+  "migrateCheckConstraints": false,
+  "hardReset": true,
+  "updatedAtUtc": "2026-07-19T18:23:52.2174928Z"
+}

@@ -1,0 +1,84 @@
+@page "/transfer/pipeline"
+@model MigrationWeb.Pages.Transfer.PipelineModel
+@{
+    ViewData["Title"] = "3 Aşamalı Validasyon";
+    var projectId = Model.Id;
+}
+
+<div class="transfer-studio" data-project-id="@(projectId?.ToString() ?? "")">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">3 Aşamalı Validasyon Pipeline</h2>
+            <p class="text-muted mb-0">Oracle → MSSQL-1 → MSSQL-2 zincir validasyonu + E2E key kontrolü</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-info btn-sm" id="btnSamplePipeline">IT_USER pipeline örneği</button>
+            <button type="button" class="btn btn-success btn-sm" id="btnSaveProject">Kaydet</button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card mb-3">
+                <div class="card-header">Projeler</div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush" id="projectList">
+                        <li class="list-group-item bg-dark text-muted">Yükleniyor…</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Proje tanımı</div>
+                <div class="card-body">
+                    <label class="form-label">Proje adı</label>
+                    <input class="form-control mb-2" id="fldProjectName" />
+                    <label class="form-label">Oracle run (Aşama 1)</label>
+                    <select class="form-select mb-2" id="fldOracleRun"></select>
+                    <label class="form-label">E2E sabit key'ler (virgülle)</label>
+                    <input class="form-control mb-2" id="fldE2eKeys" placeholder="1,2,3" />
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="fldFailFast" checked />
+                        <label class="form-check-label">Fail-fast</label>
+                    </div>
+                    <hr />
+                    <label class="form-label">Adımlar (recipe + Oracle tablo)</label>
+                    <div id="stepsEditor"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="btnAddStep">+ Adım</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+                    <button type="button" class="btn btn-primary" id="btnRunPipeline">
+                        Tüm pipeline validasyonunu çalıştır
+                    </button>
+                    <div class="form-check ms-2">
+                        <input class="form-check-input" type="checkbox" id="chkContent" checked />
+                        <label class="form-check-label">İçerik diff</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="chkE2e" checked />
+                        <label class="form-check-label">E2E key zinciri</label>
+                    </div>
+                    <span id="runStatus" class="text-muted small ms-auto"></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header d-flex justify-content-between">
+                    <span>Sonuç özeti</span>
+                    <span id="overallBadge" class="badge bg-secondary">—</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="pipelineResults" class="p-3 text-muted">Validasyon çalıştırın veya kayıtlı sonucu yükleyin.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/transfer/transfer-pipeline.js"></script>
+}

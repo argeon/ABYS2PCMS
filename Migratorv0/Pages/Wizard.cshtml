@@ -1,0 +1,595 @@
+@page
+@model WizardModel
+@{
+    ViewData["Title"] = "Migration Wizard";
+}
+
+<div class="wizard-container">
+    <!-- Resume Banner — yarıda kalan migration varsa gösterilir -->
+    <div id="resumeBanner" class="d-none mb-4">
+        <div class="card border-warning">
+            <div class="card-body">
+                <div class="d-flex align-items-start gap-3">
+                    <i class="fas fa-exclamation-triangle text-warning fa-2x flex-shrink-0 mt-1"></i>
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Yarıda kalan migration bulundu</h5>
+                        <p class="mb-2 text-muted" id="resumeSummaryText"></p>
+                        <div id="resumeTableList" class="mb-3 small"></div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-warning btn-sm" onclick="startResume()">
+                                <i class="fas fa-play me-1"></i> Kaldığı Yerden Devam Et
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="dismissResumeBanner()">
+                                <i class="fas fa-plus me-1"></i> Yeni Migration Başlat
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kayıtlı migration profili — wizard başında tam yükleme -->
+    <div id="wizardProfileBanner" class="card border-info mb-4 d-none">
+        <div class="card-body py-3">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <i class="fas fa-bookmark text-info"></i>
+                <strong class="small">Kayıtlı migration profili yükle</strong>
+                <span class="text-muted small">(bağlantılar, şifreler, tablolar ve aktarım seçenekleri)</span>
+                <select class="form-select form-select-sm flex-shrink-1" style="max-width:360px" id="wizardProfileSelect">
+                    <option value="">-- Profil seç --</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-info flex-shrink-0" id="wizardProfileLoadBtn">
+                    <i class="fas fa-download me-1"></i>Yükle
+                </button>
+            </div>
+            <div id="wizardProfileLoadStatus" class="small text-muted mt-2"></div>
+        </div>
+    </div>
+
+    <!-- Progress Steps -->
+    <div class="wizard-progress">
+        <div class="step active" data-step="1">
+            <div class="step-number">1</div>
+            <div class="step-label">Oracle Connection</div>
+        </div>
+        <div class="step" data-step="2">
+            <div class="step-number">2</div>
+            <div class="step-label">MSSQL Connection</div>
+        </div>
+        <div class="step" data-step="3">
+            <div class="step-number">3</div>
+            <div class="step-label">Select Tables</div>
+        </div>
+        <div class="step" data-step="4">
+            <div class="step-number">4</div>
+            <div class="step-label">Configure & Start</div>
+        </div>
+    </div>
+
+    <!-- Step 1: Oracle Connection -->
+    <div class="wizard-step active" id="step1">
+        <div class="card">
+            <div class="card-header">
+                <h4>
+                    <svg width="24" height="24" fill="currentColor" class="bi bi-database" viewBox="0 0 16 16">
+                        <path d="M4.318 2.687C5.234 2.271 6.536 2 8 2s2.766.27 3.682.687C12.644 3.125 13 3.627 13 4c0 .374-.356.875-1.318 1.313C10.766 5.729 9.464 6 8 6s-2.766-.27-3.682-.687C3.356 4.875 3 4.373 3 4c0-.374.356-.875 1.318-1.313ZM13 5.698V7c0 .374-.356.875-1.318 1.313C10.766 8.729 9.464 9 8 9s-2.766-.27-3.682-.687C3.356 7.875 3 7.373 3 7V5.698c.271.202.58.378.904.525C4.978 6.711 6.427 7 8 7s3.022-.289 4.096-.777A4.92 4.92 0 0 0 13 5.698ZM14 4c0-1.007-.875-1.755-1.904-2.223C11.022 1.289 9.573 1 8 1s-3.022.289-4.096.777C2.875 2.245 2 2.993 2 4v9c0 1.007.875 1.755 1.904 2.223C4.978 15.71 6.427 16 8 16s3.022-.289 4.096-.777C13.125 14.755 14 14.007 14 13V4ZM3 9.698V11c0 .374.356.875 1.318 1.313C5.234 12.729 6.536 13 8 13s2.766-.27 3.682-.687C12.644 11.875 13 11.373 13 11V9.698c-.271.202-.58.378-.904.525C11.022 10.711 9.573 11 8 11s-3.022-.289-4.096-.777A4.92 4.92 0 0 1 3 9.698ZM3 12.698V14c0 .374.356.875 1.318 1.313C5.234 15.729 6.536 16 8 16s2.766-.27 3.682-.687c.962-.438 1.318-.94 1.318-1.313v-1.302c-.271.202-.58.378-.904.525C11.022 14.711 9.573 15 8 15s-3.022-.289-4.096-.777A4.92 4.92 0 0 1 3 12.698Z"/>
+                    </svg>
+                    Oracle Database Connection
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <strong>Tip:</strong> Enter your Oracle database credentials. Connection will be tested before proceeding.
+                </div>
+                
+                <form id="oracleForm">
+                    <div class="mb-3">
+                        <label class="form-label">Host/Server</label>
+                        <input type="text" class="form-control" id="oracleHost" placeholder="localhost" value="localhost">
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Port</label>
+                            <input type="text" class="form-control" id="oraclePort" placeholder="1521" value="1521">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Service Name / SID</label>
+                            <input type="text" class="form-control" id="oracleService" placeholder="ORCL" value="ORCL">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" id="oracleUser" placeholder="SYSTEM">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" id="oraclePassword" placeholder="Password">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Schema Name</label>
+                        <input type="text" class="form-control" id="oracleSchema" placeholder="YOUR_SCHEMA">
+                        <small class="form-text text-muted">Tables will be read from this schema</small>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-primary" id="testOracleBtn">
+                            <span class="spinner-border spinner-border-sm d-none" id="oracleSpinner"></span>
+                            Test Connection
+                        </button>
+                        <div id="oracleResult" class="d-none"></div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: MSSQL Connection -->
+    <div class="wizard-step" id="step2">
+        <div class="card">
+            <div class="card-header">
+                <h4>
+                    <svg width="24" height="24" fill="currentColor" class="bi bi-server" viewBox="0 0 16 16">
+                        <path d="M1.333 2.667C1.333 1.194 4.318 0 8 0s6.667 1.194 6.667 2.667V4c0 1.473-2.985 2.667-6.667 2.667S1.333 5.473 1.333 4V2.667z"/>
+                        <path d="M1.333 6.334v3C1.333 10.805 4.318 12 8 12s6.667-1.194 6.667-2.667V6.334a6.51 6.51 0 0 1-1.458.79C11.81 7.684 9.967 8 8 8c-1.966 0-3.809-.317-5.208-.876a6.508 6.508 0 0 1-1.458-.79z"/>
+                        <path d="M14.667 11.668a6.51 6.51 0 0 1-1.458.789c-1.4.56-3.242.876-5.21.876-1.966 0-3.809-.316-5.208-.876a6.51 6.51 0 0 1-1.458-.79v1.666C1.333 14.806 4.318 16 8 16s6.667-1.194 6.667-2.667v-1.665z"/>
+                    </svg>
+                    SQL Server Connection
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <strong>Target:</strong> This SQL Server database will receive the migrated data.
+                </div>
+                
+                <form id="mssqlForm">
+                    <div class="mb-3">
+                        <label class="form-label">Server</label>
+                        <input type="text" class="form-control" id="mssqlServer" placeholder="localhost or SERVER\INSTANCE" value="localhost">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Authentication</label>
+                        <select class="form-select" id="mssqlAuth">
+                            <option value="sql">SQL Server Authentication</option>
+                            <option value="windows">Windows Authentication</option>
+                        </select>
+                    </div>
+                    
+                    <div id="mssqlCredentials">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" id="mssqlUser" placeholder="sa">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-control" id="mssqlPassword" placeholder="Password">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Database Name</label>
+                        <input type="text" class="form-control" id="mssqlDatabase" placeholder="TargetDB">
+                        <small class="form-text text-muted">Database must already exist</small>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="mssqlTrustCert" checked>
+                        <label class="form-check-label" for="mssqlTrustCert">
+                            Trust Server Certificate
+                        </label>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-primary" id="testMssqlBtn">
+                            <span class="spinner-border spinner-border-sm d-none" id="mssqlSpinner"></span>
+                            Test Connection
+                        </button>
+                        <div id="mssqlResult" class="d-none"></div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Select Tables -->
+    <div class="wizard-step" id="step3">
+        <div class="card">
+            <div class="card-header">
+                <h4>
+                    <svg width="24" height="24" fill="currentColor" class="bi bi-list-check" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M5 11.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3.854 2.146a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 1 1 .708-.708L2 3.293l1.146-1.147a.5.5 0 0 1 .708 0zm0 4a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 1 1 .708-.708L2 7.293l1.146-1.147a.5.5 0 0 1 .708 0zm0 4a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 0 1 .708-.708l.146.147 1.146-1.147a.5.5 0 0 1 .708 0z"/>
+                    </svg>
+                    Select Tables to Migrate
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning" id="loadingTables">
+                    <span class="spinner-border spinner-border-sm"></span>
+                    Loading tables from Oracle schema...
+                </div>
+                
+                <div id="tableSelection" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <input type="text" class="form-control" id="tableSearch" placeholder="Search tables...">
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="selectAllBtn">Select All</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="deselectAllBtn">Deselect All</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-list" id="tableList">
+                        <!-- Tables will be loaded here -->
+                    </div>
+                    
+                    <div class="mt-3">
+                        <strong>Selected: <span id="selectedCount">0</span> tables</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Retry Mode Modal -->
+    <div class="modal fade" id="retryModeModal" tabindex="-1" aria-labelledby="retryModeModalLabel" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title" id="retryModeModalLabel">
+                        Yeniden Aktarım Modu
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        Aşağıdaki tablolar hedefte veri içeriyor veya önceki bir aktarımda kullanıldı.
+                        Her tablo için nasıl devam edileceğini seçin.
+                    </p>
+                    <table class="table table-dark table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>Tablo</th>
+                                <th>Durum</th>
+                                <th style="min-width:340px">Aktarım Modu</th>
+                            </tr>
+                        </thead>
+                        <tbody id="retryModeTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" id="retryModalCancelBtn">İptal</button>
+                    <button type="button" class="btn btn-primary" id="retryModalConfirmBtn">Devam Et</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 4: Configure & Start -->
+    <div class="wizard-step" id="step4">
+        <div class="card">
+            <div class="card-header">
+                <h4>
+                    <svg width="24" height="24" fill="currentColor" class="bi bi-gear" viewBox="0 0 16 16">
+                        <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
+                        <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319z"/>
+                    </svg>
+                    Migration Configuration
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Degree of Parallelism</label>
+                        <input type="number" class="form-control" id="parallelism" value="8" min="1" max="32">
+                        <small class="form-text text-muted">Number of parallel workers (recommended: 8)</small>
+                    </div>
+                    
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Batch Size</label>
+                        <input type="number" class="form-control" id="batchSize" value="50000" min="1000" max="100000" step="1000">
+                        <small class="form-text text-muted">Rows per batch (recommended: 50000)</small>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Fetch Size (MB)</label>
+                        <input type="number" class="form-control" id="fetchSize" value="50" min="10" max="200">
+                        <small class="form-text text-muted">Oracle fetch buffer size</small>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+
+                <h6 class="text-secondary fw-semibold small text-uppercase mb-2" style="letter-spacing:.05em">
+                    <i class="fas fa-layer-group me-1"></i> Paralel partition yükleme
+                </h6>
+
+                <div class="settings-option-list">
+
+                    <div class="settings-option">
+                        <div class="form-check form-switch settings-toggle mb-0">
+                            <input class="form-check-input" type="checkbox" id="parallelPartitionLoad" role="switch">
+                        </div>
+                        <div class="settings-content">
+                            <label class="settings-label" for="parallelPartitionLoad">Aynı tablonun partition'larını paralel yükle</label>
+                            <div class="settings-desc">Büyük tablolarda bant genişliği daha iyi kullanılır; MSSQL yazma kilitlerine dikkat edin.</div>
+                            <div id="partitionParallelismGroup" style="display:none" class="settings-extra">
+                                <label class="settings-extra-label" for="partitionDegreeOfParallelism">Worker sayısı</label>
+                                <input type="number" class="form-control form-control-sm settings-extra-input" id="partitionDegreeOfParallelism" value="4" min="2" max="32">
+                                <span class="settings-extra-hint">tablo başına (önerilen: 4)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="form-check form-switch settings-toggle mb-0">
+                            <input class="form-check-input" type="checkbox" id="useStagingMerge" role="switch">
+                        </div>
+                        <div class="settings-content">
+                            <label class="settings-label" for="useStagingMerge">Staging table merge stratejisi</label>
+                            <div class="settings-desc">Her partition kendi staging tablosuna yüklenir; tümü küçükten büyüğe sırayla hedefe birleştirilir. Paralel yazma kilit çakışmasını önler.</div>
+                            <div class="settings-note settings-note-info" id="stagingMergeInfo" style="display:none">
+                                <i class="fas fa-info-circle me-1"></i>Hedefte <code>__mig_{tablo}_s{n}</code> geçici tablolar oluşturulur — migration sonrası otomatik silinir.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="form-check form-switch settings-toggle mb-0">
+                            <input class="form-check-input" type="checkbox" id="usePartitionSwitch" role="switch">
+                        </div>
+                        <div class="settings-content">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <label class="settings-label mb-0" for="usePartitionSwitch">Partition Switch birleştirme</label>
+                                <span class="badge bg-success" style="font-size:.65rem">Büyük tablolar</span>
+                            </div>
+                            <div class="settings-desc">INSERT/SELECT yerine <code>ALTER TABLE…SWITCH PARTITION</code> — satır kopyalamaz, sadece metadata günceller. Anlık birleştirme. Heap tablosu gerektirir (PK / clustered index olmayan).</div>
+                            <div class="settings-note settings-note-success" id="partitionSwitchInfo" style="display:none">
+                                <i class="fas fa-bolt me-1"></i><strong>Anlık:</strong> Partition function oluşturulur, her staging tablosu SWITCH ile hedefe alınır, sonra temizlenir. Staging Merge otomatik aktif olur.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="form-check form-switch settings-toggle mb-0">
+                            <input class="form-check-input" type="checkbox" id="useBulkLoggedRecovery" checked role="switch">
+                        </div>
+                        <div class="settings-content">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <label class="settings-label mb-0" for="useBulkLoggedRecovery">Bulk-Logged recovery modu</label>
+                                <span class="badge bg-primary" style="font-size:.65rem">Önerilen</span>
+                            </div>
+                            <div class="settings-desc">Migration süresince hedef DB <code>BULK_LOGGED</code> moduna alınır — transaction log şişmesini ve disk I/O'yu dramatik azaltır. Migration sonunda orijinal recovery moduna geri döner.</div>
+                            <div class="settings-note settings-note-warning">
+                                <i class="fas fa-exclamation-triangle me-1"></i>Migration sonrası mutlaka <strong>tam yedek</strong> alın — Bulk-Logged ile log zinciri kırılır.
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <hr class="my-4">
+
+                <h5 class="mb-3">
+                    <i class="fas fa-check-double"></i> Data validation (gates)
+                </h5>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="validationMode">Validation mode</label>
+                        <select class="form-select" id="validationMode">
+                            <option value="Balanced" selected>Balanced — row count + PK checks under row threshold</option>
+                            <option value="Strict">Strict — always run applicable PK gates</option>
+                            <option value="CountOnly">Count only — Oracle vs MSSQL row counts</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="validationMaxRows">Max rows for extended gates (Balanced)</label>
+                        <input type="number" class="form-control" id="validationMaxRows" value="5000000" min="0" step="100000">
+                        <small class="form-text text-muted">Above this, Balanced mode skips SUM / MIN-MAX PK gates</small>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="validatePerTableAfterLoad">
+                            <label class="form-check-label" for="validatePerTableAfterLoad">
+                                Validate after each table load
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="validationFailFast">
+                            <label class="form-check-label" for="validationFailFast">
+                                Fail-fast (cancel other tables if post-load validation fails)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="enableCompositePkHash">
+                            <label class="form-check-label" for="enableCompositePkHash">
+                                Enable composite PK hash (reserved; no extra gates yet)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-secondary py-2 mb-0">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="autoStartDotnetRun">
+                        <label class="form-check-label" for="autoStartDotnetRun">
+                            <strong>Command line:</strong> start migration as soon as I run <code>dotnet run</code> in MigrationEngine (without <code>--run</code>)
+                        </label>
+                    </div>
+                    <small class="text-muted d-block mt-1">Leave off to avoid re-running the saved migration every time you open the engine; use <code>dotnet run -- --run</code> when you are ready, or start from the Dashboard.</small>
+                </div>
+
+                <hr class="my-4">
+
+                <h5 class="mb-3">
+                    <i class="fas fa-cog"></i> Schema Migration Options
+                </h5>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migratePrimaryKeys" checked>
+                            <label class="form-check-label" for="migratePrimaryKeys">
+                                <strong><i class="fas fa-key text-success"></i> Primary Keys</strong>
+                                <br><small class="text-muted">Recommended: Keep enabled</small>
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migrateIndexes">
+                            <label class="form-check-label" for="migrateIndexes">
+                                <strong><i class="fas fa-list-ol text-info"></i> Indexes</strong>
+                                <br><small class="text-muted">Default: Disabled (slower migration)</small>
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migrateForeignKeys">
+                            <label class="form-check-label" for="migrateForeignKeys">
+                                <strong><i class="fas fa-link text-warning"></i> Foreign Keys</strong>
+                                <br><small class="text-muted">Default: Disabled (may fail)</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migrateUniqueConstraints">
+                            <label class="form-check-label" for="migrateUniqueConstraints">
+                                <strong><i class="fas fa-shield-alt text-primary"></i> Unique Constraints</strong>
+                                <br><small class="text-muted">Default: Disabled</small>
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migrateCheckConstraints">
+                            <label class="form-check-label" for="migrateCheckConstraints">
+                                <strong><i class="fas fa-check-circle text-secondary"></i> Check Constraints</strong>
+                                <br><small class="text-muted">Default: Disabled</small>
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="migrateTriggers">
+                            <label class="form-check-label" for="migrateTriggers">
+                                <strong><i class="fas fa-bolt text-danger"></i> Triggers</strong>
+                                <br><small class="text-muted">Default: Disabled (not implemented)</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mt-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Tip:</strong> For fastest migration, keep only Primary Keys enabled. 
+                    Create indexes and constraints manually after data load completes.
+                </div>
+                
+                <hr class="my-4">
+                
+                <h5>Migration Summary</h5>
+                <div class="summary-box">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Source:</strong></p>
+                            <p class="text-muted" id="summaryOracle">-</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Target:</strong></p>
+                            <p class="text-muted" id="summaryMssql">-</p>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            <p><strong>Tables to migrate:</strong></p>
+                            <p class="text-muted" id="summaryTables">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="fas fa-table"></i> Seçili tablolar: aktarım durumu ve kaynak/hedef kontrolü</h6>
+                        <button type="button" class="btn btn-sm btn-outline-info" id="checkTableStatusBtn">
+                            Kontrol et
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Tablo</th>
+                                    <th>Aktarım durumu</th>
+                                    <th class="text-end">Kaynak</th>
+                                    <th class="text-end">Hedef</th>
+                                    <th class="text-end">Fark</th>
+                                    <th>Eşleşme</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableTransferStatusBody">
+                                <tr><td colspan="6" class="text-muted text-center py-3">Kontrol için "Kontrol et" butonunu kullanın.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info mt-3">
+                    <strong>Next Step:</strong>
+                    <p class="mb-0">After saving configuration, you'll receive instructions to start the Migration Engine in a separate terminal.</p>
+                </div>
+
+                <hr class="my-4">
+
+                <h5 class="mb-3"><i class="fas fa-bookmark me-1"></i> Migration profili kaydet</h5>
+                <p class="text-muted small">Bağlantı bilgileri ve tüm migration ayarları (tablolar, paralellik, seçenekler) bir profil olarak kaydedilir; sonraki migrationlarda tek tıkla yüklenebilir.</p>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-7">
+                        <label class="form-label" for="migrationProfileName">Profil adı</label>
+                        <input type="text" class="form-control" id="migrationProfileName" placeholder="örn. Üretim Oracle → MSSQL 2025-05">
+                    </div>
+                    <div class="col-md-5">
+                        <button type="button" class="btn btn-outline-primary w-100" id="saveMigrationProfileBtn" onclick="saveMigrationProfile()">
+                            <i class="fas fa-save me-1"></i> Profili Kaydet
+                        </button>
+                    </div>
+                </div>
+                <div id="saveProfileResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation Buttons -->
+    <div class="wizard-navigation">
+        <button class="btn btn-secondary" id="prevBtn" disabled>
+            <svg width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+            </svg>
+            Previous
+        </button>
+        <button class="btn btn-primary" id="nextBtn">
+            Next
+            <svg width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
+            </svg>
+        </button>
+        <button class="btn btn-success d-none" id="startBtn">
+            <svg width="16" height="16" fill="currentColor" class="bi bi-play-fill" viewBox="0 0 16 16">
+                <path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+            </svg>
+            Kaydet ve devam
+        </button>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/wizard.js"></script>
+}

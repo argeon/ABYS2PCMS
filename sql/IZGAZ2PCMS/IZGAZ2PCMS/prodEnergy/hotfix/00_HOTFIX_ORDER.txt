@@ -1,0 +1,31 @@
+prodEnergy/hotfix — SIRASI (2026-07-24)
+Host: PG-098 local | Full 597 CLEAN YOK
+
+HEMEN (Faz A)
+----
+1) 03_backfill_iade_invlines.sql     *** ONCELIK ***
+   IADE INVLINES ~556K | @DRY_RUN=1 → 0
+
+2) 04_patch_kismi_debt_pt.sql
+   KISMI MAIN borc PT = HDR | @DRY_RUN=1 → 0
+
+3) 01_diag_kurus_src_en.sql
+   Salt okuma (OV vs EN + ALLOC)
+
+4) 02_patch_resync_amounts_from_ov.sql   (opsiyonel)
+   DEC2 fark varsa | @DRY_RUN=1 → 0
+
+5) ../70_rapor_tahakkuk_tahsilat_gelir.sql
+   Is kontrolu
+
+SONRA (Faz B/C — Oracle 20+30 dump sonrasi)
+----
+- Yeni KISMI (+satir/EXPLAIN/PT) ve ALLOC waterfill icin
+  bkz. ust klasor 00_RUN_ORDER.txt Faz B → C
+- O noktada 03/04 tekrar gerekmez (590/597 guncel SP)
+
+NOT
+----
+- 10_590 deploy: ABYS_ID=LREF (IADE) + KISMI PT sync dahil
+- 04, mevcut LS_OV_KISMI_HDR ile calisir (eski dump OK)
+- +satir modeli icin Oracle 20 yeniden sart

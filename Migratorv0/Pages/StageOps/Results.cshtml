@@ -1,0 +1,66 @@
+@page "/stage-ops/results"
+@model MigrationWeb.Pages.StageOps.ResultsModel
+@{
+    ViewData["Title"] = "Stage Ops · Sonuçlar";
+}
+<link href="~/css/stage-ops.css" rel="stylesheet" />
+
+<div class="stage-ops" id="stageOpsResults">
+    <div class="so-nav-pills">
+        <a href="/stage-ops">Hub</a>
+        <a href="/stage-ops/ctas">CTAS</a>
+        <a href="/stage-ops/transfer-sql">TRANSFER SQL</a>
+        <a href="/stage-ops/prod-sql">PROD SQL</a>
+        <a href="/stage-ops/connections">Bağlantılar</a>
+        <a href="/stage-ops/results" class="active">Sonuçlar</a>
+    </div>
+
+    <div class="so-hero">
+        <div>
+            <div class="so-badge">Kalıcı arşiv</div>
+            <h1>Run sonuçları</h1>
+            <p>Tüm Stage Ops run’ları, stage çıktıları ve loglar. Satır dump yok — aggregate metrik + log dosyası.</p>
+        </div>
+    </div>
+
+    <div class="so-toolbar">
+        <select id="filterSurface" class="so-select">
+            <option value="">Tüm yüzeyler</option>
+            <option value="ctas">CTAS</option>
+            <option value="transfer-sql">TRANSFER SQL</option>
+            <option value="prod-sql">PROD SQL</option>
+        </select>
+        <button type="button" class="so-btn" id="btnRefreshResults">Yenile</button>
+    </div>
+
+    <div class="so-layout-2">
+        <div class="so-panel">
+            <div class="so-panel-header"><h3>Run listesi</h3></div>
+            <div style="overflow:auto;max-height:640px">
+                <table class="so-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Yüzey</th>
+                            <th>Durum</th>
+                            <th>OK / Hata</th>
+                            <th>Başlangıç</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                        <tr><td colspan="5" style="color:var(--so-muted);padding:1rem">Yükleniyor…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="so-panel">
+            <div class="so-panel-header"><h3>Detay</h3><span id="detailLabel" style="color:var(--so-muted);font-size:.8rem"></span></div>
+            <div id="resultDetail" style="padding:1rem;color:var(--so-muted);font-size:.88rem">Run seçin</div>
+            <ul class="so-event-list" id="resultEvents"></ul>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/stage-ops/stage-ops-results.js"></script>
+}
