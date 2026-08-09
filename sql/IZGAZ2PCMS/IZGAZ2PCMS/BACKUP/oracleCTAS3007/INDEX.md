@@ -3,6 +3,15 @@
 Okuma/HHD (tahsilat öncesi veya paralel): `09_mig_accrue_type_map` → `LS_READING` → `LS_READING_SYNTH` → `LS_HHD_MSTR` → GATE → O11.
 Katalog: `TABLE_CATALOG.md` · Dump: `DUMP_MANIFEST.txt` · Cleanup: `99_stg_cleanup.sql` · IX: `98_transfer_indexes.sql`
 
+## Kural — Oracle INDEX / STATS
+
+| Sınıf | Oracle INDEX + `GATHER_TABLE_STATS` |
+|-------|-------------------------------------|
+| **Zincir / staging** — aynı veya sonraki CTAS JOIN/MERGE/EXISTS | **Evet** (TMP_*, `LS_INVOICE`, OV feeders, O50→O51, …) |
+| **Terminal DUMP** — yalnızca dump → izgazMGR; CTAS tüketici yok | **Hayır** (`ALTER TABLE … NOPARALLEL LOGGING` + RECON kalır) |
+
+MSSQL IX: dump sonrası `00_pre_indexes` / 520. Dump öncesi join anahtarı: `98_transfer_indexes.sql` (ayrı).
+
 ## Çalıştırma sırası
 
 | # | Dosya | Log | Ürettiği tablolar |

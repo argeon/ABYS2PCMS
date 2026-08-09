@@ -1,14 +1,12 @@
 # IZGAZ2PCMS SQL paketi
 
-**195 ile senkron canlı paket:** `prodEnergy/`
+**Harita:** [`CANONICAL/README.md`](CANONICAL/README.md)
 
-| Alt klasör | İçerik |
-|------------|--------|
-| `prodREADY_ENERGY/` | 590/597 overlay, NCIX, GUVENCE |
-| `prodREADY_ENERGY3007/` | Staging, taksit/613, SSMS execs, RUN_ORDER |
-| `90_afl_frk/` | FRK / kontrol scriptleri |
-| `hotfix/`, `patch/` | Anlık yamalar |
+| Klasör | Rol |
+|--------|-----|
+| `prodEnergy/` | Canlı Energy (195 senkron kaynak) |
+| `BACKUP/oracleCTAS3007/` | CTAS omurga |
+| `BACKUP/20260708/` | Snapshot (`_sync_snapshot.ps1`) |
+| `CANONICAL/` | Tek doğru yol listesi |
 
-Paket dışı (arşiv): `BACKUP/` — CTAS, eski düz SQL, `20260708` snapshot, stage_ops, ProdIzgazMgr2Energy.
-
-Kök indeks: repo `INDEX.md`.
+Eski ağaçlar `BACKUP/` altında; silmeden önce CANONICAL’a bak.

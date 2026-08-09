@@ -2,6 +2,8 @@
 
 A production-grade database migration tool for migrating Oracle databases to Microsoft SQL Server with real-time monitoring and progress tracking.
 
+**GitHub sürüm logu:** [`VERSION_LOG.md`](VERSION_LOG.md) (`master` / `deploy` / `hotfix`, tag `vX.Y.Z`)
+
 ---
 
 ## ⭐ TEK SOLUTION - TÜM PROJELER BİRLİKTE!

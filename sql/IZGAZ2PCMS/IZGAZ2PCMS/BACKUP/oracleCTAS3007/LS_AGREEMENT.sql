@@ -22,6 +22,7 @@
 --   MIGRATION.STG_TARIFF_MAP fiziksel stage tablo
 --   Join: normalize edilmis NK_* anahtarlar (TRIM/UPPER/I-İ)
 -- ============================================================
+-- TERMINAL DUMP: Oracle INDEX / GATHER_TABLE_STATS yok (CTAS zincirinde tuketilmiyor; IX -> izgazMGR/energy).
 
 -- ============================================================
 -- 0) IDEMPOTENT DROP
@@ -806,34 +807,12 @@ CROSS JOIN (
 -- ============================================================
 -- 3) INDEX
 -- ============================================================
-CREATE UNIQUE INDEX MIGRATION.UX_LS_AGR_LREF
-    ON MIGRATION.LS_AGREEMENT (LREF) NOLOGGING PARALLEL 4;
 
-CREATE INDEX MIGRATION.IDX_LS_AGR_TP2_ABYSID
-    ON MIGRATION.LS_AGREEMENT (TP2, ABYS_ID) NOLOGGING PARALLEL 4;
-
-CREATE INDEX MIGRATION.IDX_LS_AGR_ADDDATE
-    ON MIGRATION.LS_AGREEMENT (ADDDATE) NOLOGGING PARALLEL 4;
-
-CREATE INDEX MIGRATION.IDX_LS_AGR_FLATID
-    ON MIGRATION.LS_AGREEMENT (FLATID) NOLOGGING PARALLEL 4;
-
-CREATE INDEX MIGRATION.IDX_LS_AGR_CON
-    ON MIGRATION.LS_AGREEMENT (CON) NOLOGGING PARALLEL 4;
 
 -- Parallel/nologging kapat (sonraki DML'lerde surpriz olmasin)
 ALTER TABLE MIGRATION.LS_AGREEMENT NOPARALLEL LOGGING;
-ALTER INDEX MIGRATION.UX_LS_AGR_LREF        NOPARALLEL;
-ALTER INDEX MIGRATION.IDX_LS_AGR_TP2_ABYSID NOPARALLEL;
-ALTER INDEX MIGRATION.IDX_LS_AGR_ADDDATE    NOPARALLEL;
-ALTER INDEX MIGRATION.IDX_LS_AGR_FLATID     NOPARALLEL;
-ALTER INDEX MIGRATION.IDX_LS_AGR_CON        NOPARALLEL;
 
 -- Istatistik
-BEGIN
-  DBMS_STATS.GATHER_TABLE_STATS('MIGRATION','LS_AGREEMENT', cascade => TRUE, degree => 4);
-END;
-/
 
 -- ============================================================
 -- 4) DOGRULAMA

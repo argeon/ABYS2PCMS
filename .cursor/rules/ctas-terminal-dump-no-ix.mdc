@@ -1,0 +1,37 @@
+---
+description: CTAS terminal DUMP tablolarında Oracle INDEX/STATS yazma; zincir/staging IX kalsın
+globs: sql/IZGAZ2PCMS/IZGAZ2PCMS/BACKUP/oracleCTAS*/**/*.sql
+alwaysApply: false
+---
+
+# CTAS — terminal DUMP vs zincir INDEX/STATS
+
+Oracle CTAS çıktısı çoğu zaman **dump → izgazMGR (MSSQL)** içindir. Index dump ile taşınmaz; MSSQL tarafı kendi IX’ini kurar.
+
+## Terminal DUMP → Oracle INDEX / `GATHER_TABLE_STATS` YOK
+
+Tablo aynı veya sonraki CTAS adımında JOIN/MERGE/EXISTS ile **tüketilmiyorsa** (yalnızca dosya sonu RECON `COUNT/SUM`):
+
+- `CREATE INDEX` / `CREATE UNIQUE INDEX` yazma
+- `DBMS_STATS.GATHER_TABLE_STATS` yazma
+- `ALTER TABLE … NOPARALLEL LOGGING` ve RECON / `P_MIG_CTAS_LOG` **kalır**
+- Header notu: `-- TERMINAL DUMP: Oracle INDEX / GATHER_TABLE_STATS yok …`
+
+Örnek: `LS_CUSTODY`, `TUKETIM_TUTAR_KONTROL`, master `LS_REGISTER`/`LS_FLAT`/…, `LS_PAYMENT`, `LS_TAKSIT`, O14b final `LS_DEBT_PAYTRANS`.
+
+## Zincir / staging → INDEX (ve gerektiğinde STATS) KALSIN
+
+- Aynı script TMP/STG pivot → final CTAS
+- Sonraki O* tüketicisi (`LS_INVOICE` → O12/O30…, `LS_AFL_OPEN_DEBT` → O51, `LS_OV_PAY_PT` → O32/O33…)
+- `98_transfer_indexes.sql` dump-öncesi join anahtarları (ayrı dosya)
+
+Karışık dosya: yalnızca **final terminal** tablonun IX/STATS’ını kaldır; TMP_/zincir IX dokunma.  
+Örnek: O51 `TMP_STG_*` KEEP, `LS_STG_INV_PAY_CLOSE` STRIP.
+
+## Yeni CTAS yazarken
+
+1. Tüketici var mı? (grep `FROM MIGRATION.<TABLO>` diğer `oracleCTAS3007/*.sql`)
+2. Yoksa terminal DUMP şablonu — IX/STATS ekleme.
+3. Varsa zincir IX’i CREATE sonrası koy; stats ihtiyaca göre.
+
+Canlı omurga: `BACKUP/oracleCTAS3007/`. Snapshot: `BACKUP/20260708/CTAS/` (sync ile).

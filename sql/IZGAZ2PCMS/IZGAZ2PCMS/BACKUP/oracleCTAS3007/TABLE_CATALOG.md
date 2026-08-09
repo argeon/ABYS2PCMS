@@ -4,6 +4,8 @@ Sınıf etiketleri: **DUMP** (izgazMGR), **STG_KEEP**, **STG_DROP**, **DIAG**.
 Dump listesi = yalnız DUMP → [`DUMP_MANIFEST.txt`](DUMP_MANIFEST.txt).
 Cleanup = [`99_stg_cleanup.sql`](99_stg_cleanup.sql). Transfer IX = [`98_transfer_indexes.sql`](98_transfer_indexes.sql).
 
+**Oracle IX/STATS:** Terminal DUMP tablolarında yok (zincir/staging’de var). Bkz. `INDEX.md` § Kural — Oracle INDEX / STATS.
+
 | Adım | Tablo | Sınıf | Tüketici | Not |
 |------|-------|-------|----------|-----|
 | 09 | `MIG_ACCRUE_TYPE_MAP` | STG_KEEP | SYNTH, O11 | Seed; dump yok |
