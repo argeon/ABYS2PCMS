@@ -1,4 +1,4 @@
-﻿# 20260708/REPORT — kontrol / FRK / checklist
+# 20260708/REPORT — kontrol / FRK / checklist
 
 Kopya arsiv. Kaynak: `90_afl_frk`, `prodREADY_ENERGY*`, Oracle CHECK/diag.
 Canli duzenleme kaynak klasorlerde; burasi aksam goc kontrol paketi.

@@ -1,7 +1,7 @@
 {
   "sourceSrid": null,
   "readingPeriod": "202607",
-  "oracleConnectionString": "User Id=gbayer;Password=Gb240354.\u002B;Data Source=10.32.67.107:1521/izgaz;",
+  "oracleConnectionString": "User Id=SMS;Password=RepSmS26!IzGx;Data Source=172.16.1.201:1521/izgaz;",
   "oracleSchema": "SMS",
   "mssqlConnectionString": "Data Source=172.16.1.196;Initial Catalog=izgazMGR;User ID=sa;Password=Gn44361!654h45gGR;Trust Server Certificate=True",
   "targetTableName": "CS_READING_PLAN",
@@ -14,5 +14,5 @@
   "migrateUniqueConstraints": false,
   "migrateCheckConstraints": false,
   "hardReset": true,
-  "updatedAtUtc": "2026-08-07T08:44:59.3218937Z"
+  "updatedAtUtc": "2026-08-09T13:18:29.4925493Z"
 }

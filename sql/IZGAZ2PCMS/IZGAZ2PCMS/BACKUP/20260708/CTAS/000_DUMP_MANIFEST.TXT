@@ -31,6 +31,7 @@ LS_OV_CANCEL_PAY
 LS_OV_CANCEL_REV
 LS_AFL_OPEN_DEBT
 TUKETIM_TUTAR_KONTROL   (tuketim+tutar recon; ENERGY zorunlu yük değil)
+LS_CUSTODY              (register emanet/borç recon; PROBLEMATIC_CUSTODY; ENERGY zorunlu yük değil)
 LS_STG_INV_PAY_CLOSE
 LS_PAYMENT
 LS_EKSILTEN

@@ -47,6 +47,7 @@ Katalog: `TABLE_CATALOG.md` · Dump: `DUMP_MANIFEST.txt` · Cleanup: `99_stg_cle
 | O58★★ | `58_gate_pilot_parity.sql` | O58 | GATE |
 | O59 | `59_tuketim_tutar_kontrol.sql` | O59 | `TUKETIM_TUTAR_KONTROL` (tuketim+tutar recon) |
 | O60 | `60_ls_ov_guvence_iade.sql` | O60 | `LS_OV_GUVENCE_IADE_*` (TYPE 110; ACCRUE14 tip20/12/40 + güvence gelir) + ID_MAP append |
+| O61 | `61_ls_custody.sql` | O61 | `LS_CUSTODY` (register emanet/borç; PROBLEMATIC_CUSTODY; II_FIRM_PRM yok) |
 | O99 | `99_log_status.sql` | — | özet |
 
 ★ hard gate · ★★ 3007 pilot

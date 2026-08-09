@@ -1,4 +1,4 @@
-﻿# Yenilendi: 2026-08-09
+# Yenilendi: 2026-08-09
 001_00_LOG_SETUP.SQL <= prodEnergy/prodREADY_ENERGY/00_log_setup.sql
 002_00_MAP_TABLES.SQL <= prodEnergy/prodREADY_ENERGY/00_map_tables.sql
 003_00B_ALIGN_MGR_VARCHAR.SQL <= prodEnergy/prodREADY_ENERGY/00b_align_mgr_varchar.sql

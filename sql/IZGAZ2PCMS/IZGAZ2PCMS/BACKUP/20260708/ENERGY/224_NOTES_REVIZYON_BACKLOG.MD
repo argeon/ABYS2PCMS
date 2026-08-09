@@ -40,6 +40,15 @@ Son güncelleme: 2026-08-09 (R07–R11 gömüldü)
 | R09 | DONE | `20d_597_LOADED_MAP_HEAL.sql` + notes | LOADED↔MAP NCIX-off kalıbı |
 | R10 | DONE | `35_bankref_resolve_abys.sql` | `@DryRunInt`; MAXDOP 8; `IOCODE=0`; dış TRAN kaldırıldı |
 | R11 | DONE | `92_stg_inv_pay_close_apply.sql` | physical `MIG_92_STG_*`; MAXDOP 8; `IOCODE=0` |
+| R12 | TODO — **cutover bitince** | 35 / 40 / 92 (+ opsiyonel 20c) | Script → `CREATE OR ALTER PROCEDURE`; `10f` checklist; `SSMS_POST` sadece `EXEC @DRY_RUN,@AGR_ID` |
+| R13 | DONE (2026-08-09) | `35_bankref…` | DRY sayım: scalar `FN_MIG_RESOLVE_BANK_LREF` → `LS_BANK.ABYS_ID` JOIN (RBAR öldürdü) |
+
+### R12 not (cutover bitince)
+
+- Amaç: sunucu gövdesi = paket; DRY/APPLY parametre; “hangi dosya / DRY=0 unuttuk” yok.
+- Kalıp: `NN_xxx.sql` → `SP_MIG_35_BANKREF_RESOLVE` / `SP_MIG_40_IPP_APPLY` / `SP_MIG_92_STG_CLOSE`.
+- Driver: `EXEC … @DRY_RUN=1|0, @AGR_ID=NULL|-1|>0`.
+- Mid-cutover’da **yapma** — 35/92 script ile bitsin; sonra taşı.
 
 ---
 
@@ -60,8 +69,8 @@ Son güncelleme: 2026-08-09 (R07–R11 gömüldü)
 ## Kapanış checklist (cutover END öncesi)
 
 - [x] R06–R11 kodlandı  
-- [ ] `_sync_snapshot.ps1` (BACKUP/20260708)  
-- [ ] 195 `ENERGY` + `SRC_prodREADY_*` robocopy  
+- [x] `_sync_snapshot.ps1` (BACKUP/20260708) — 2026-08-09  
+- [x] 195 `ENERGY` + `SRC_prodREADY_*` + `SRC_90_afl_frk` robocopy  
 - [ ] `28_DEPLOY_597` (GATE MAXDOP sonrası — opsiyonel bu cutover)  
 - [ ] 613 SP deploy (`00e` + `613…v6`) — sonraki 613 koşusunda  
 - [ ] G1–G9 kabul kapıları (`NOTES_CUTOVER_DEV_PLAN_20260809.md`)  

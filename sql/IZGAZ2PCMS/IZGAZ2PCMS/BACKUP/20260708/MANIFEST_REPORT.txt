@@ -1,4 +1,4 @@
-﻿# REPORT — kontrol/rapor kopyalari · 2026-08-09
+# REPORT — kontrol/rapor kopyalari · 2026-08-09
 000_README_AFL_FRK.TXT <= prodEnergy/90_afl_frk/00_README.txt
 091_AFL_FRK_COMPARE_LOG.SQL <= prodEnergy/90_afl_frk/91_afl_frk_compare_log.sql
 092_STG_INV_PAY_CLOSE_APPLY.SQL <= prodEnergy/90_afl_frk/92_stg_inv_pay_close_apply.sql

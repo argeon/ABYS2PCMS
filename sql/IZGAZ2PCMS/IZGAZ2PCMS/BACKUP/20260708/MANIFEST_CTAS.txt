@@ -1,4 +1,4 @@
-﻿000_RUN_ORDER.MD <= (generated)  # DOC
+000_RUN_ORDER.MD <= (generated)  # DOC
 000_DUMP_MANIFEST.TXT <= oracleCTAS3007/DUMP_MANIFEST.txt
 000_INDEX.MD <= oracleCTAS3007/INDEX.md
 000_SCHEMA_CTAS_ORDER.MD <= oracleCTAS3007/SCHEMA_CTAS_ORDER.md
@@ -59,6 +59,7 @@
 056_58_GATE_PILOT_PARITY.SQL <= oracleCTAS3007/58_gate_pilot_parity.sql
 057_59_TUKETIM_TUTAR_KONTROL.SQL <= oracleCTAS3007/59_tuketim_tutar_kontrol.sql
 058_60_LS_OV_GUVENCE_IADE.SQL <= oracleCTAS3007/60_ls_ov_guvence_iade.sql
+058A_61_LS_CUSTODY.SQL <= oracleCTAS3007/61_ls_custody.sql
 059_98_TRANSFER_INDEXES.SQL <= oracleCTAS3007/98_transfer_indexes.sql
 060_99_LOG_STATUS.SQL <= oracleCTAS3007/99_log_status.sql
 061_99_STG_CLEANUP.SQL <= oracleCTAS3007/99_stg_cleanup.sql  # OPSIYONEL

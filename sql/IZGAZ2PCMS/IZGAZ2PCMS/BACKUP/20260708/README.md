@@ -1,4 +1,4 @@
-﻿# 20260708 — CTAS + ENERGY + REPORT snapshot (COPY)
+# 20260708 — CTAS + ENERGY + REPORT snapshot (COPY)
 
 Kaynaklar yerinde kaldi; bu klasor **kopya** arsivdir (cut degil).
 Son yenileme: 2026-08-09.

@@ -22,6 +22,7 @@ Cleanup = [`99_stg_cleanup.sql`](99_stg_cleanup.sql). Transfer IX = [`98_transfe
 | O33 | `TMP_O33_*` | STG_DROP | O33 sonu / 99 | |
 | O51 | `TMP_STG_PAY_AGG`, `TMP_STG_BANK_NM` | STG_DROP | O51 sonu / 99 | |
 | O32 | `LS_OV_INV_PAY_GAP` | DIAG | Opsiyonel | |
+| O61 | `LS_CUSTODY` | DUMP | Recon (emanet/borç); ENERGY zorunlu yük değil | |
 | _skip/40 | `LS_OV_TAH_LOG` | DIAG | Opsiyonel | |
 
 ## Okuma zinciri sırası
