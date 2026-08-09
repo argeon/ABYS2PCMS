@@ -1,4 +1,4 @@
-# CANONICAL — tek çalışma yüzeyi
+﻿# CANONICAL — tek çalışma yüzeyi
 
 Bu klasör **harita**. Canlı dosyalar buraya kopyalanmaz; aşağıdaki yollar tek doğrudur.
 Eski `BACKUP/*` ağaçlarını silmeden / temizlemeden önce buraya bak.
@@ -35,7 +35,7 @@ O61 `LS_CUSTODY` → `oracleCTAS3007/61_ls_custody.sql`
 
 | Ne | Yol |
 |----|-----|
-| Pre-IX kural yedeği | `../BACKUP/20260809_CTAS_PRE_IX_RULE/` → git history `v0.1.0` |
+| Pre-IX kural yedeği | _(silindi)_ → git tag `v0.1.0` |
 | Tiny ref yedekleri | `../BACKUP/_backup_*`, `backup_hhd_*` |
 | Üst seviye dated zip ağaçları | `../../BACKUP/IZGAZ2PCMS_backup_*` (gitignore) |
 
