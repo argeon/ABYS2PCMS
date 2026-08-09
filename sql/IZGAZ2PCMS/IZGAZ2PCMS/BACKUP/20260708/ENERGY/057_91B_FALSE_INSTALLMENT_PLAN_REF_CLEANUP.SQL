@@ -1,0 +1,224 @@
+/* =============================================================================
+   prodREADY_ENERGY3007 / 91b_false_installment_plan_ref_cleanup.sql
+   SSMS: tespit + patch
+
+   SORUN:
+     Birden fazla fatura ayni ABYS_INSTALLMENT_ID / INSTALLMENT_PLAN_REF tasiyor.
+     611b wire plan.INVOICE_REF'i tek faturaya (genelde MIN LREF / tutar eslesen) baglar.
+     Diger faturalarda INSTALLMENT_PLAN_REF kalir → UI/kontrol "taksit plani var"
+     sanir; 613 ise tutar uyusmazligi ile INST_NR>0 PT acmaz.
+
+   ORNEK: LREF=33947340 (ACTION=10, 18.88) PLAN_REF=83589
+          gercek taksit INV = plan.INVOICE_REF = 74359 (ACTION=1, 2410) + 3 PT
+
+   KURAL (FALSE_REF):
+     inv.INSTALLMENT_PLAN_REF IS NOT NULL
+     AND plan.PLAN_ID = inv.INSTALLMENT_PLAN_REF
+     AND plan.INVOICE_REF IS NOT NULL
+     AND plan.INVOICE_REF <> inv.LREF
+     → bu faturada INSTALLMENT_PLAN_REF temizlenir (NULL)
+
+   @CLEAR_ABYS_INSTALLMENT_ID=1 → ABYS_INSTALLMENT_ID da NULL (opsiyonel;
+     kaynak ABYS izi silinir; sadece energy karisikligi icin)
+
+   Kullanim:
+     1) @DryRun=1  → sadece rapor
+     2) @INV_LREF=33947340 ile pilot
+     3) @DryRun=0  → APPLY
+   ============================================================================= */
+USE energy;
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET QUOTED_IDENTIFIER ON;
+
+/* >>> OPERATOR <<< */
+DECLARE @DryRun BIT = 1;                      -- 0 = uygula
+DECLARE @CLEAR_ABYS_INSTALLMENT_ID BIT = 0;   -- 1 = ABYS_INSTALLMENT_ID da temizle
+DECLARE @AGR_ID BIGINT = NULL;                -- ornek: 60867
+DECLARE @INV_LREF INT = NULL;                 -- ornek: 33947340 (pilot tek fatura)
+-- SET @AGR_ID = 60867;
+-- SET @INV_LREF = 33947340;
+-- SET @DryRun = 0;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+    + N' | 91b FALSE PLAN_REF DryRun=' + CAST(@DryRun AS VARCHAR(1))
+    + N' CLEAR_ABYS=' + CAST(@CLEAR_ABYS_INSTALLMENT_ID AS VARCHAR(1));
+
+IF OBJECT_ID('tempdb..#FALSE_REF') IS NOT NULL DROP TABLE #FALSE_REF;
+
+;WITH plan_canon AS (
+    /* Plan basina tek kanonik fatura (wire sonucu) */
+    SELECT
+        pl.PLAN_ID,
+        pl.ABYS_INSTALLMENT_ID,
+        pl.INVOICE_REF AS CANON_INV,
+        CONVERT(DECIMAL(18,2), SUM(CONVERT(DECIMAL(18,2), pl.TOTAL_AMOUNT))) AS PLAN_SUM
+    FROM dbo.LS_005_01_INSTALLMENT_PLAN pl WITH (NOLOCK)
+    WHERE pl.ABYS_ID IS NOT NULL
+      AND pl.INVOICE_REF IS NOT NULL
+      AND pl.PLAN_ID IS NOT NULL
+    GROUP BY pl.PLAN_ID, pl.ABYS_INSTALLMENT_ID, pl.INVOICE_REF
+)
+SELECT
+    i.LREF AS INV_LREF,
+    i.ABYS_AGREEMENT_ID AS AGR_ID,
+    i.ABYS_ACTION_TYPE_ID AS ACTION_TYPE,
+    CONVERT(DECIMAL(18,2), i.TLTOTAL) AS TLTOTAL,
+    CONVERT(DECIMAL(18,2), i.PAYABLETOTAL) AS PAYABLETOTAL,
+    i.INSTALLMENT_PLAN_REF AS PLAN_REF_OLD,
+    i.ABYS_INSTALLMENT_ID AS ABYS_INST_OLD,
+    pc.CANON_INV,
+    pc.PLAN_SUM,
+    CONVERT(DECIMAL(18,2), ABS(ISNULL(i.PAYABLETOTAL, 0) - pc.PLAN_SUM)) AS ABS_DIFF,
+    c.ABYS_ACTION_TYPE_ID AS CANON_ACTION,
+    CONVERT(DECIMAL(18,2), c.PAYABLETOTAL) AS CANON_PAYABLE,
+    (
+        SELECT COUNT(*)
+        FROM dbo.LS_005_01_PAYTRANS p WITH (NOLOCK)
+        WHERE p.INVOICEREF = i.LREF
+          AND ISNULL(p.IOCODE, 0) = 0
+          AND ISNULL(p.INST_NR, 0) > 0
+          AND ISNULL(p.CANCELED, 0) = 0
+    ) AS OWN_INST_PT,
+    (
+        SELECT COUNT(*)
+        FROM dbo.LS_005_01_PAYTRANS p WITH (NOLOCK)
+        WHERE p.INVOICEREF = pc.CANON_INV
+          AND ISNULL(p.IOCODE, 0) = 0
+          AND ISNULL(p.INST_NR, 0) > 0
+          AND ISNULL(p.CANCELED, 0) = 0
+    ) AS CANON_INST_PT
+INTO #FALSE_REF
+FROM dbo.LS_005_01_INVOICE i WITH (NOLOCK)
+INNER JOIN plan_canon pc
+    ON pc.PLAN_ID = i.INSTALLMENT_PLAN_REF
+INNER JOIN dbo.LS_005_01_INVOICE c WITH (NOLOCK)
+    ON c.LREF = pc.CANON_INV
+WHERE ISNULL(i.IOCODE, 0) = 0
+  AND ISNULL(i.CANCELED, 0) = 0
+  AND i.INSTALLMENT_PLAN_REF IS NOT NULL
+  AND i.LREF <> pc.CANON_INV
+  AND (@AGR_ID IS NULL OR i.ABYS_AGREEMENT_ID = @AGR_ID)
+  AND (@INV_LREF IS NULL OR i.LREF = @INV_LREF);
+
+CREATE CLUSTERED INDEX CX_FALSE_REF ON #FALSE_REF (INV_LREF);
+
+/* ---- TESPIT ---- */
+PRINT '========== TESPIT OZET ==========';
+SELECT COUNT(*) AS FALSE_REF_CNT,
+       COUNT(DISTINCT AGR_ID) AS AGR_CNT,
+       COUNT(DISTINCT PLAN_REF_OLD) AS PLAN_CNT
+FROM #FALSE_REF;
+
+SELECT ACTION_TYPE, COUNT(*) AS N
+FROM #FALSE_REF
+GROUP BY ACTION_TYPE
+ORDER BY N DESC;
+
+PRINT '========== ORNEK (TOP 30) ==========';
+SELECT TOP 30
+    INV_LREF, AGR_ID, ACTION_TYPE, PAYABLETOTAL,
+    PLAN_REF_OLD, CANON_INV, CANON_ACTION, CANON_PAYABLE, PLAN_SUM, ABS_DIFF,
+    OWN_INST_PT, CANON_INST_PT
+FROM #FALSE_REF
+ORDER BY
+    CASE WHEN INV_LREF = 33947340 THEN 0 ELSE 1 END,
+    ABS_DIFF DESC, INV_LREF;
+
+/* Pilot cozum yolu goster */
+IF @INV_LREF IS NOT NULL OR EXISTS (SELECT 1 FROM #FALSE_REF WHERE INV_LREF = 33947340)
+BEGIN
+    PRINT '========== COZUM YOLU (bakilan → kanonik) ==========';
+    SELECT
+        f.INV_LREF AS BAKILAN,
+        f.PLAN_REF_OLD AS PLAN_ID,
+        f.CANON_INV AS GERCEK_TAKSIT_INV,
+        f.CANON_PAYABLE,
+        f.CANON_INST_PT AS TAKSIT_PT_CNT
+    FROM #FALSE_REF f
+    WHERE f.INV_LREF = ISNULL(@INV_LREF, 33947340);
+END
+
+/* Guvenlik: kendi uzerinde INST_NR>0 PT olanlari uygulama disi birak (beklenmez) */
+DECLARE @blocked INT = (SELECT COUNT(*) FROM #FALSE_REF WHERE OWN_INST_PT > 0);
+IF @blocked > 0
+BEGIN
+    PRINT 'UYARI: OWN_INST_PT>0 olan FALSE_REF var — patch disinda birakilacak: '
+        + CAST(@blocked AS VARCHAR(20));
+    SELECT TOP 20 * FROM #FALSE_REF WHERE OWN_INST_PT > 0 ORDER BY INV_LREF;
+END
+
+IF @DryRun = 1
+BEGIN
+    PRINT 'DRY_RUN=1 — UPDATE yok. Uygulamak icin SET @DryRun=0';
+    RETURN;
+END
+
+/* ---- PATCH ---- */
+PRINT '========== PATCH APPLY ==========';
+
+BEGIN TRAN;
+
+UPDATE i
+SET i.INSTALLMENT_PLAN_REF = NULL
+FROM dbo.LS_005_01_INVOICE i
+INNER JOIN #FALSE_REF f ON f.INV_LREF = i.LREF
+WHERE f.OWN_INST_PT = 0
+  AND i.INSTALLMENT_PLAN_REF IS NOT NULL;
+
+DECLARE @n_ref INT = @@ROWCOUNT;
+PRINT 'CLEAR INSTALLMENT_PLAN_REF n=' + CAST(@n_ref AS VARCHAR(20));
+
+DECLARE @n_abys INT = 0;
+IF @CLEAR_ABYS_INSTALLMENT_ID = 1
+BEGIN
+    UPDATE i
+    SET i.ABYS_INSTALLMENT_ID = NULL
+    FROM dbo.LS_005_01_INVOICE i
+    INNER JOIN #FALSE_REF f ON f.INV_LREF = i.LREF
+    WHERE f.OWN_INST_PT = 0
+      AND i.ABYS_INSTALLMENT_ID IS NOT NULL
+      /* kanonik faturadaki plan ile ayni id ise temizle */
+      AND i.ABYS_INSTALLMENT_ID = f.ABYS_INST_OLD;
+
+    SET @n_abys = @@ROWCOUNT;
+    PRINT 'CLEAR ABYS_INSTALLMENT_ID n=' + CAST(@n_abys AS VARCHAR(20));
+END
+
+COMMIT TRAN;
+
+/* ---- DOGRULAMA ---- */
+PRINT '========== DOGRULAMA ==========';
+SELECT
+    (SELECT COUNT(*) FROM dbo.LS_005_01_INVOICE i WITH (NOLOCK)
+     WHERE ISNULL(i.IOCODE,0)=0 AND ISNULL(i.CANCELED,0)=0
+       AND i.INSTALLMENT_PLAN_REF IS NOT NULL
+       AND EXISTS (
+            SELECT 1 FROM dbo.LS_005_01_INSTALLMENT_PLAN pl WITH (NOLOCK)
+            WHERE pl.PLAN_ID = i.INSTALLMENT_PLAN_REF
+              AND pl.INVOICE_REF IS NOT NULL AND pl.INVOICE_REF <> i.LREF
+       )
+       AND (@AGR_ID IS NULL OR i.ABYS_AGREEMENT_ID = @AGR_ID)
+       AND (@INV_LREF IS NULL OR i.LREF = @INV_LREF)
+    ) AS REMAINING_FALSE_REF;
+
+-- Ornek fatura
+IF @INV_LREF IS NOT NULL
+    SELECT LREF, INSTALLMENT_PLAN_REF, ABYS_INSTALLMENT_ID, PAYABLETOTAL, ABYS_ACTION_TYPE_ID
+    FROM dbo.LS_005_01_INVOICE WITH (NOLOCK)
+    WHERE LREF = @INV_LREF;
+
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121) + N' | 91b DONE';
+GO
+
+/*
+--- Hizli pilot (33947340) ---
+USE energy;
+-- Dosyada: SET @DryRun=1; SET @INV_LREF=33947340;  → F5
+-- Sonra:   SET @DryRun=0; SET @INV_LREF=33947340;  → F5
+
+--- FULL ---
+-- SET @DryRun=0; SET @AGR_ID=NULL; SET @INV_LREF=NULL;
+-- Istege bagli: SET @CLEAR_ABYS_INSTALLMENT_ID=1;
+*/

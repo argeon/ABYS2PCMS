@@ -1,0 +1,297 @@
+/* =============================================================================
+   FILE : prodEnergy/90_afl_frk/98_TEST_tam_iade_main_close.sql
+   TEST ORTAMI — TAM / TYPE92 IADE sonrasi acik MAIN borc PT kapatma
+
+   Sonraki aktarimda beklenen:
+     Overlay/IADE zinciri MAIN PT+CLOSED dogru uretirse bu FRK gelmez.
+   Bu script:
+     Mevcut test DB'yi (yanlis acik kalan TAM) hizalar — kalici prod zinciri degil.
+
+   Kapsam (heal eder):
+     A) OV_EKS KIND=TAM + TYPE92 IADE + AFL≈0 + MAIN PT acik
+     B) TYPE92 IADE var, AFL≈0, ayni hesapta acik borc MAIN (OV yoksa da)
+
+   Kapsamaz (sonraki aktarim / 96 inceleme):
+     DELTA_TAH_NET (ONLY_EN / ONLY_ABYS / TTK hesap kaymasi)
+     KISMI eksilten tutar duzeltmesi
+     AFL'de gercekten acik borc (BALANCE>eps) — dokunulmaz
+
+   Kullanim:
+     1) @DryRun=1  → aday listesi
+     2) @DryRun=0  → APPLY + MIG_TAM_IADE_CLOSE_LOG
+     3) EXEC SP_AGR_FRK_ALL @Agr=... veya @OnlyDiff=1 ile dogrula
+
+   Ornek:
+     DECLARE @Agr BIGINT = NULL;   -- tum test
+     DECLARE @Agr BIGINT = 174042;
+     DECLARE @DryRun BIT = 0;
+   ============================================================================= */
+USE energy;
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+/* >>> OPERATOR <<< */
+DECLARE @DryRun    BIT           = 1;      -- 0 = APPLY (test)
+DECLARE @Agr       BIGINT        = NULL;   -- NULL=tum | ornek 174042
+DECLARE @AccountId BIGINT        = NULL;
+DECLARE @Eps       DECIMAL(18,2) = 0.02;
+DECLARE @RunId     UNIQUEIDENTIFIER = NEWID();
+DECLARE @Ts        DATETIME2(3) = SYSDATETIME();
+-- SET @DryRun = 0;
+
+PRINT CONVERT(VARCHAR(30), @Ts, 121)
+    + N' | 98_TEST TAM-IADE close DryRun=' + CAST(@DryRun AS VARCHAR(1))
+    + N' Agr=' + CASE WHEN @Agr IS NULL THEN N'TUM' ELSE CONVERT(NVARCHAR(20), @Agr) END
+    + N' RUN=' + CONVERT(NVARCHAR(36), @RunId);
+
+IF OBJECT_ID('izgazMGR.dbo.LS_OV_EKS_CLASS', 'U') IS NULL
+BEGIN
+    RAISERROR('izgazMGR.dbo.LS_OV_EKS_CLASS yok — OV_TAM adaylari uretilemez.', 16, 1);
+    RETURN;
+END
+
+/* ---------- Log tablo ---------- */
+IF OBJECT_ID('energy.dbo.MIG_TAM_IADE_CLOSE_LOG', 'U') IS NULL
+BEGIN
+    CREATE TABLE energy.dbo.MIG_TAM_IADE_CLOSE_LOG (
+        LOG_ID         BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        RUN_ID         UNIQUEIDENTIFIER NOT NULL,
+        SNAPSHOT_TS    DATETIME2(3) NOT NULL
+            CONSTRAINT DF_TAM_IADE_CLOSE_TS DEFAULT (SYSDATETIME()),
+        DRY_RUN        BIT NOT NULL,
+        AGREEMENT_ID   BIGINT NULL,
+        ACCOUNT_ID     BIGINT NOT NULL,
+        MAIN_LREF      INT NOT NULL,
+        PT_LREF        INT NOT NULL,
+        IADE_LREF      INT NULL,
+        EKS_AMT        DECIMAL(18,2) NULL,
+        IADE_AMT       DECIMAL(18,2) NULL,
+        PT_PAID_OLD    DECIMAL(18,2) NULL,
+        PT_PAYABLE     DECIMAL(18,2) NULL,
+        PT_KALAN       DECIMAL(18,2) NULL,
+        AFL_BALANCE    DECIMAL(18,2) NULL,
+        SOURCE_KIND    VARCHAR(20) NOT NULL,  -- OV_TAM | IADE_ONLY
+        NOTE           NVARCHAR(200) NULL
+    );
+    CREATE NONCLUSTERED INDEX IX_TAM_IADE_CLOSE_RUN
+        ON energy.dbo.MIG_TAM_IADE_CLOSE_LOG (RUN_ID, ACCOUNT_ID);
+END
+
+IF OBJECT_ID('tempdb..#CAND') IS NOT NULL DROP TABLE #CAND;
+
+;WITH iade AS (
+    SELECT
+        CAST(inv.ABYS_AGREEMENT_ID AS BIGINT) AS AGREEMENT_ID,
+        CAST(inv.ABYS_ACCOUNT_ID AS BIGINT) AS ACCOUNT_ID,
+        MAX(inv.LREF) AS IADE_LREF,
+        CONVERT(DECIMAL(18,2), SUM(CONVERT(DECIMAL(18,2), ISNULL(inv.PAYABLETOTAL, 0)))) AS IADE_AMT
+    FROM dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+    WHERE inv.TYPE = 92
+      AND ISNULL(inv.CANCELED, 0) = 0
+      AND inv.ABYS_ACCOUNT_ID IS NOT NULL
+      AND (
+             @Agr IS NULL
+          OR inv.ABYS_AGREEMENT_ID = @Agr
+          OR inv.OWNERREF = CONVERT(INT, @Agr)
+          )
+      AND (@AccountId IS NULL OR inv.ABYS_ACCOUNT_ID = @AccountId)
+    GROUP BY CAST(inv.ABYS_AGREEMENT_ID AS BIGINT), CAST(inv.ABYS_ACCOUNT_ID AS BIGINT)
+),
+ov_tam AS (
+    SELECT
+        CAST(e.AGREEMENT_ID AS BIGINT) AS AGREEMENT_ID,
+        CAST(e.ACCOUNT_ID AS BIGINT) AS ACCOUNT_ID,
+        CAST(e.MAIN_LREF AS INT) AS MAIN_LREF,
+        CONVERT(DECIMAL(18,2), ISNULL(e.EKS_AMT, 0)) AS EKS_AMT
+    FROM izgazMGR.dbo.LS_OV_EKS_CLASS e WITH (NOLOCK)
+    WHERE e.KIND = 'TAM'
+      AND e.MAIN_LREF IS NOT NULL
+      AND (@Agr IS NULL OR e.AGREEMENT_ID = @Agr)
+      AND (@AccountId IS NULL OR e.ACCOUNT_ID = @AccountId)
+),
+/* A) Overlay TAM + IADE */
+cand_ov AS (
+    SELECT
+        COALESCE(t.AGREEMENT_ID, i.AGREEMENT_ID) AS AGREEMENT_ID,
+        t.ACCOUNT_ID,
+        t.MAIN_LREF,
+        t.EKS_AMT,
+        i.IADE_LREF,
+        i.IADE_AMT,
+        'OV_TAM' AS SOURCE_KIND
+    FROM ov_tam t
+    INNER JOIN iade i ON i.ACCOUNT_ID = t.ACCOUNT_ID
+),
+/* B) IADE var, OV MAIN yok → acik borc INV (en buyuk kalan) aday MAIN */
+open_main AS (
+    SELECT
+        i.AGREEMENT_ID,
+        i.ACCOUNT_ID,
+        inv.LREF AS MAIN_LREF,
+        CONVERT(DECIMAL(18,2), 0) AS EKS_AMT,
+        i.IADE_LREF,
+        i.IADE_AMT,
+        'IADE_ONLY' AS SOURCE_KIND,
+        ROW_NUMBER() OVER (
+            PARTITION BY i.ACCOUNT_ID
+            ORDER BY
+                CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0) - ISNULL(pt.PAID, 0)) DESC,
+                inv.LREF
+        ) AS RN
+    FROM iade i
+    INNER JOIN dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        ON inv.ABYS_ACCOUNT_ID = i.ACCOUNT_ID
+       AND ISNULL(inv.IOCODE, 0) = 0
+       AND ISNULL(inv.CANCELED, 0) = 0
+       AND ISNULL(inv.CLOSED, 0) = 0
+       AND ISNULL(inv.TYPE, 0) <> 92
+    INNER JOIN dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = inv.LREF
+       AND ISNULL(pt.IOCODE, 0) = 0
+       AND ISNULL(pt.CANCELED, 0) = 0
+       AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+    WHERE NOT EXISTS (SELECT 1 FROM ov_tam t WHERE t.ACCOUNT_ID = i.ACCOUNT_ID)
+      AND CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0) - ISNULL(pt.PAID, 0)) > @Eps
+),
+cand_all AS (
+    SELECT AGREEMENT_ID, ACCOUNT_ID, MAIN_LREF, EKS_AMT, IADE_LREF, IADE_AMT, SOURCE_KIND
+    FROM cand_ov
+    UNION ALL
+    SELECT AGREEMENT_ID, ACCOUNT_ID, MAIN_LREF, EKS_AMT, IADE_LREF, IADE_AMT, SOURCE_KIND
+    FROM open_main
+    WHERE RN = 1
+)
+SELECT
+    c.AGREEMENT_ID,
+    c.ACCOUNT_ID,
+    c.MAIN_LREF,
+    c.EKS_AMT,
+    c.IADE_LREF,
+    c.IADE_AMT,
+    c.SOURCE_KIND,
+    inv.TYPE AS MAIN_TYPE,
+    ISNULL(inv.CLOSED, 0) AS MAIN_CLOSED,
+    CONVERT(DECIMAL(18,2), ISNULL(inv.PAYABLETOTAL, 0)) AS INV_PAYABLE,
+    pt.LREF AS PT_LREF,
+    CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0)) AS PT_PAYABLE,
+    CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0)) AS PT_PAID_OLD,
+    CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0)) AS PT_PAID_NEW,
+    CONVERT(DECIMAL(18,2),
+        ISNULL(pt.PAYABLETOTAL, 0) - ISNULL(pt.PAID, 0)) AS PT_KALAN,
+    CONVERT(DECIMAL(18,2), ISNULL(afl.BALANCE, 0)) AS AFL_BALANCE
+INTO #CAND
+FROM cand_all c
+INNER JOIN dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+    ON inv.LREF = c.MAIN_LREF
+   AND ISNULL(inv.IOCODE, 0) = 0
+   AND ISNULL(inv.CANCELED, 0) = 0
+INNER JOIN dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+    ON pt.INVOICEREF = inv.LREF
+   AND ISNULL(pt.IOCODE, 0) = 0
+   AND ISNULL(pt.CANCELED, 0) = 0
+   AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+LEFT JOIN dbo.LS_AFL_OPEN_DEBT afl WITH (NOLOCK)
+    ON CAST(afl.FATURAID AS BIGINT) = c.ACCOUNT_ID
+WHERE CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0) - ISNULL(pt.PAID, 0)) > @Eps
+  AND CONVERT(DECIMAL(18,2), ISNULL(afl.BALANCE, 0)) <= @Eps
+OPTION (RECOMPILE, MAXDOP 24);
+
+CREATE CLUSTERED INDEX CX_CAND ON #CAND (PT_LREF);
+
+PRINT N'build_ms=' + CAST(DATEDIFF(MILLISECOND, @Ts, SYSDATETIME()) AS VARCHAR(20));
+
+PRINT '========== TESPIT OZET ==========';
+SELECT
+    SOURCE_KIND,
+    COUNT(*) AS PT_OPEN_CNT,
+    COUNT(DISTINCT ACCOUNT_ID) AS ACC_CNT,
+    COUNT(DISTINCT AGREEMENT_ID) AS AGR_CNT,
+    CONVERT(DECIMAL(18,2), SUM(PT_KALAN)) AS SUM_PT_KALAN
+FROM #CAND
+GROUP BY SOURCE_KIND
+ORDER BY SOURCE_KIND;
+
+PRINT '========== ADAYLAR (TOP 100) ==========';
+SELECT TOP 100
+    AGREEMENT_ID, ACCOUNT_ID, SOURCE_KIND, MAIN_LREF, MAIN_TYPE, MAIN_CLOSED,
+    EKS_AMT, IADE_LREF, IADE_AMT,
+    PT_LREF, PT_PAYABLE, PT_PAID_OLD, PT_KALAN, AFL_BALANCE
+FROM #CAND
+ORDER BY PT_KALAN DESC, AGREEMENT_ID, ACCOUNT_ID;
+
+/* Log (dry + apply) */
+INSERT INTO energy.dbo.MIG_TAM_IADE_CLOSE_LOG (
+    RUN_ID, SNAPSHOT_TS, DRY_RUN, AGREEMENT_ID, ACCOUNT_ID,
+    MAIN_LREF, PT_LREF, IADE_LREF, EKS_AMT, IADE_AMT,
+    PT_PAID_OLD, PT_PAYABLE, PT_KALAN, AFL_BALANCE, SOURCE_KIND, NOTE
+)
+SELECT
+    @RunId, @Ts, @DryRun, AGREEMENT_ID, ACCOUNT_ID,
+    MAIN_LREF, PT_LREF, IADE_LREF, EKS_AMT, IADE_AMT,
+    PT_PAID_OLD, PT_PAYABLE, PT_KALAN, AFL_BALANCE, SOURCE_KIND,
+    CASE WHEN @DryRun = 1 THEN N'DRY_RUN' ELSE N'APPLY' END
+FROM #CAND;
+
+PRINT N'LOG n=' + CAST(@@ROWCOUNT AS VARCHAR(20)) + N' RUN=' + CONVERT(NVARCHAR(36), @RunId);
+
+IF NOT EXISTS (SELECT 1 FROM #CAND)
+BEGIN
+    PRINT N'Aday yok — cikis.';
+    RETURN;
+END;
+
+IF @DryRun = 1
+BEGIN
+    PRINT N'DRY_RUN=1 — Energy UPDATE yok.';
+    PRINT N'Uygula: SET @DryRun=0;  (once @Agr ile daraltman onerilir)';
+    PRINT N'Dogrula: EXEC dbo.SP_AGR_FRK_ALL @Agr=<id>, @ReturnResult=1;';
+    PRINT N'Incele: SELECT * FROM MIG_TAM_IADE_CLOSE_LOG WHERE RUN_ID=''' 
+        + CONVERT(NVARCHAR(36), @RunId) + N''';
+    RETURN;
+END;
+
+/* ---------- APPLY ---------- */
+PRINT '========== APPLY ==========';
+BEGIN TRAN;
+
+UPDATE pt
+SET pt.PAID = CONVERT(FLOAT, c.PT_PAID_NEW)
+FROM dbo.LS_005_01_PAYTRANS pt
+INNER JOIN #CAND c ON c.PT_LREF = pt.LREF
+WHERE ISNULL(pt.IOCODE, 0) = 0
+  AND ISNULL(pt.CANCELED, 0) = 0
+  AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0;
+
+PRINT N'PT PAID=PAYABLE n=' + CAST(@@ROWCOUNT AS VARCHAR(20));
+
+UPDATE inv
+SET inv.CLOSED = CAST(1 AS BIT)
+FROM dbo.LS_005_01_INVOICE inv
+INNER JOIN (SELECT DISTINCT MAIN_LREF FROM #CAND) c ON c.MAIN_LREF = inv.LREF
+WHERE ISNULL(inv.IOCODE, 0) = 0
+  AND ISNULL(inv.CANCELED, 0) = 0
+  AND ISNULL(inv.CLOSED, 0) = 0;
+
+PRINT N'INV CLOSED=1 n=' + CAST(@@ROWCOUNT AS VARCHAR(20));
+
+COMMIT TRAN;
+
+PRINT '========== POST: hala acik aday? (0 beklenir) ==========';
+SELECT COUNT(*) AS STILL_OPEN
+FROM #CAND c
+INNER JOIN dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK) ON pt.LREF = c.PT_LREF
+WHERE CONVERT(DECIMAL(18,2), ISNULL(pt.PAYABLETOTAL, 0) - ISNULL(pt.PAID, 0)) > @Eps;
+
+PRINT '========== Etkilenen sozlesmeler — SP dogrulama ==========';
+SELECT DISTINCT AGREEMENT_ID
+FROM #CAND
+WHERE AGREEMENT_ID IS NOT NULL
+ORDER BY AGREEMENT_ID;
+
+PRINT N'Sonra ornek: EXEC dbo.SP_AGR_FRK_ALL @Agr = <AGREEMENT_ID>, @WriteTable=1, @ReturnResult=1;';
+PRINT N'  DELTA_KALAN_EKS tipi kalan dusmeli; DELTA_TAH_NET ayri kalir (aktarim).';
+PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121) + N' | 98_TEST DONE APPLY RUN='
+    + CONVERT(NVARCHAR(36), @RunId);
+GO

@@ -1,0 +1,209 @@
+================================================================================
+IZGAZ → ENERGY CUTOVER — MANUEL TAKIP CHECKLIST
+Paket : oracleCTAS/prodREADY  +  prodEnergy/prodREADY_ENERGY
+Host  : PG-098 local | Oracle MIGRATION+SMS
+Operator: _______________   Tarih: ____ / ____ / 2026
+================================================================================
+KURAL: GATE_FAIL / FAIL → DUR. Dump veya sonraki adıma geçme.
+Log  : Oracle MIG_CTAS_LOG | Energy MIG_STEP_LOG
+================================================================================
+
+
+════════════════════════════════════════════════════════════════════════════
+A) ORACLE CTAS  (klasor: oracleCTAS/prodREADY/)
+   Log dosya: tee → prodEnergy/logs/01_oracle_ctas/
+   Ozet DB  : @99_log_status.sql
+════════════════════════════════════════════════════════════════════════════
+
+--- On kosul ---
+[ ] sqlplus baglantisi OK (MIGRATION + SMS)
+[ ] Tablespace / TEMP / undo kontrol edildi
+[ ] Eski LS_* / LS_OV_* bilinçli DROP edilecek (CTAS yenileyecek)
+
+--- Adimlar (her satir: saat | sonuc | cnt/not | log dosya) ---
+
+[ ] O0   00_session_parallel.sql (+00_mig_ctas_log)
+      saat: ______  sonuc: OK / FAIL     not: FORCE 56
+      log : _________________________________
+
+[ ] O0b  00_mig_param_full.sql
+      saat: ______  sonuc: OK / FAIL     not: MIG_PARAM bos
+      log : _________________________________
+
+[ ] O10  10_stg_inv_acc_inc.sql
+      saat: ______  sonuc: OK / FAIL     cnt: __________
+      log : _________________________________
+
+[ ] O11  11_ls_invoice.sql
+      saat: ______  sonuc: OK / FAIL     tgt=______ bad_lref=0 ?
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O11=OK
+
+[ ] O12  12_ls_invlines.sql
+      saat: ______  sonuc: OK / FAIL     lines=______ linenr_gt255=______
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O12=OK
+      [ ] linenr_gt255>0 ise energy 01_linenr_smallint NOT ALINDI → ______
+
+[ ] O12d diag_linenr_gt_255.sql (ops / O12 sonrasi)
+      saat: ______  sonuc: OK            fatura_adet=______
+
+[ ] O13  13_ls_mig_agr_list.sql
+      saat: ______  sonuc: OK / FAIL     agr_cnt=______
+      log : _________________________________
+
+[ ] O14  14_ls_debt_paytrans.sql
+      saat: ______  sonuc: OK / FAIL     cnt=______
+      log : _________________________________
+
+[ ] O20  20_ls_eksilten_overlay.sql
+      saat: ______  sonuc: OK / FAIL     iade=______ il=______ kismi_il=______
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O20=OK
+
+[ ] O27  27_gate_eksilten.sql                    ★ HARD GATE
+      saat: ______  sonuc: GATE_PASS / GATE_FAIL
+      not : tam=______ iade=______ kismi_hdr=______
+      log : _________________________________
+      [ ] GATE_FAIL ise DUR — dump YOK
+
+[ ] O30  30_ls_tahsilat_overlay.sql
+      saat: ______  sonuc: OK / FAIL     pay_pt=______ alloc=______
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O30=OK
+
+[ ] O35  35_ls_ov_id_map.sql                     ★ MAP
+      saat: ______  sonuc: OK / FAIL     map_rows=______
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O35=OK
+      [ ] ENERGY_LREF hep NULL (beklenen)
+
+[ ] O40  40_ls_tahsilat_log.sql                  (ops)
+      saat: ______  sonuc: OK            tah_log=______
+      log : _________________________________
+
+[ ] O41  41_gate_tahsilat.sql                    ★ HARD GATE
+      saat: ______  sonuc: GATE_PASS / GATE_FAIL
+      not : pt=______ alloc=______ no_xref=0?
+      log : _________________________________
+      [ ] GATE_FAIL ise DUR — dump YOK
+
+[ ] O50  50_ls_afl_open_debt.sql
+      saat: ______  sonuc: OK / FAIL     afl=______ mig_scope=______
+      log : _________________________________
+      [ ] MIG_CTAS_LOG O50=OK
+
+--- Oracle kapanis ---
+[ ] @99_log_status.sql calistirildi
+[ ] FAIL / GATE_FAIL satiri YOK
+[ ] CTAS tamam — dump'a gecilebilir
+
+
+════════════════════════════════════════════════════════════════════════════
+B) DUMP  Oracle → izgazMGR
+════════════════════════════════════════════════════════════════════════════
+
+[ ] D1  LS_INVOICE + LS_INVLINES
+      saat: ______  Oracle cnt ≈ izgazMGR cnt ?  EVET / HAYIR
+
+[ ] D2  LS_MIG_AGR_LIST + LS_DEBT_PAYTRANS
+      saat: ______  OK / FAIL
+
+[ ] D3  LS_OV_* eksilten (IADE / KISMI / MAIN_UPD / EKS_CLASS)
+      saat: ______  OK / FAIL
+
+[ ] D4  LS_OV_* tahsilat (PAY_ALLOC / PAY_PT / CANCEL / TAH_INV / MAHSUP…)
+      saat: ______  OK / FAIL
+
+[ ] D5  LS_OV_ID_MAP  ★ zorunlu
+      saat: ______  map_rows=______  ENERGY_LREF NULL?
+
+[ ] D6  LS_AFL_OPEN_DEBT
+      saat: ______  OK / FAIL
+
+[ ] Dump mutabakat: kritik tablolar COUNT Oracle ≡ izgazMGR
+
+
+════════════════════════════════════════════════════════════════════════════
+C) ENERGY  (klasor: prodEnergy/prodREADY_ENERGY/)
+   Log dosya: sqlcmd -o → prodEnergy/logs/03_energy/
+   Ozet DB  : EXEC SP_MIG_LOG_STATUS
+════════════════════════════════════════════════════════════════════════════
+
+--- Setup ---
+[ ] E-LOG  00_log_setup.sql
+      saat: ______  sonuc: OK     SP_MIG_LOG_STEP var?
+
+[ ] E-MAP  00_map_tables.sql
+      saat: ______  sonuc: OK
+
+[ ] E-MAP2 izgazMGR.LS_OV_ID_MAP → energy.MIG_OV_ID_MAP (ENERGY_LREF NULL)
+      saat: ______  map_rows=______
+
+[ ] E-LIN  01_linenr_smallint.sql                 ★ 581 ONCESI
+      saat: ______  sonuc: OK     LINENR tipi=SMALLINT?
+
+[ ] E-AGR  LS_005_01_AGR dolu (ABYS_ID NOT NULL)
+      saat: ______  cnt=______
+
+--- MAIN migrate ---
+[ ] E571  INVOICE migrate @RESUME=0
+      saat: ______  sonuc: OK / FAIL     cnt≈______
+      log : _________________________________
+
+[ ] E581  INVLINES migrate                        (SMALLINT sonrasi)
+      saat: ______  sonuc: OK / FAIL     cnt≈______
+      log : _________________________________
+
+[ ] E575  DEBT_PAYTRANS  VEYA  O14 bulk (ikisini birden YAPMA)
+      saat: ______  sonuc: OK / FAIL     secim: 575 / O14
+      log : _________________________________
+
+--- Overlay 590 ---
+[ ] E590-D  Deploy: 10_590_INSERT + 11_WIRE + 12_GATE + 19_ALL
+      saat: ______  sonuc: OK
+
+[ ] E590    EXEC SP_MIG_590_ALL @AGR_ID=NULL, @CLEAN=1, @DEBUG=1   ★
+      saat: ______  sonuc: OK / FAIL
+      MIG_STEP_LOG: E590 START→OK ?  E590G GATE_PASS ?
+      log : _________________________________
+      [ ] FAIL ise DUR — 597'ye gecme
+
+--- Overlay 597 ---
+[ ] E597-D  Deploy: 20_597_INSERT + 21_WIRE + 22_GATE + 29_ALL
+      saat: ______  sonuc: OK
+
+[ ] E597    EXEC SP_MIG_597_ALL @AGR_ID=NULL, @CLEAN=1, @DEBUG=1   ★
+      saat: ______  sonuc: OK / FAIL
+      MIG_STEP_LOG: E597 START→OK ?  E597G GATE_PASS ?
+      log : _________________________________
+
+--- Energy kapanis kontrolleri ---
+[ ] EXEC SP_MIG_LOG_STATUS — FAIL / GATE_FAIL YOK
+[ ] Spot IADE: MAIN.RETURN_TARGET_INVREF dolu (ornek AGR ______)
+[ ] Spot PAY:  PAYTRANS.CROSSREF dolu
+[ ] Spot IADE_IL: ABYS_ID = LREF
+[ ] E60 / E70 post kontrol (ops)
+[ ] E91 AFL FRK (ops)
+[ ] E80 613 taksit (ops, ayri karar)  @RUN_FULL=0 default
+
+
+════════════════════════════════════════════════════════════════════════════
+D) YASAK / NOTLAR
+════════════════════════════════════════════════════════════════════════════
+[ ] 00_run_all otomatik zincir ANA YOL DEGIL (istersen yedek)
+[ ] prod2 / eski 590__full / 31_ONLY kullanilmadi
+[ ] Tek basina SP_MIG_590_INSERT / 597_INSERT calistirilmadi
+[ ] Hotfix 03/04 ana yolda yok
+
+Operator imza: _______________     Bitis saati: ______
+================================================================================
+Parca listeler (yazdir / tek tek isaretle):
+  oracleCTAS/prodREADY/MANUAL_CHECKLIST_ORACLE.txt
+  prodEnergy/MANUAL_CHECKLIST_DUMP.txt
+  prodEnergy/prodREADY_ENERGY/MANUAL_CHECKLIST_ENERGY.txt
+
+Check SQL (ara / kapanis dogrulama — gate yerine gecmez):
+  oracleCTAS/prodREADY/CHECK_QUERIES_ORACLE.sql
+  prodEnergy/prodREADY_ENERGY/CHECK_QUERIES_ENERGY.sql
+================================================================================

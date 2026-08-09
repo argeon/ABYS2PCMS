@@ -1,0 +1,602 @@
+/* ============================================================
+   prodREADY_ENERGY / 10_590_INSERT  (v2 set-based / resume)
+   IADE INV/IL + KISMI IL + MAIN_UPD (CANCEL; RETURN_TARGET → WIRE)
+   MAP.ENERGY_LREF doldurulur. Tek basina cutover YASAK → 19_590_ALL.
+
+   v2:
+     - MAP MERGE: count esitse SKIP (FULL resume hizli)
+     - IADE_INV / IADE_IL: cursor YOK → MERGE…OUTPUT batch
+     - #temp UX/IX
+     - ABYS_LINENR_SRC INSERT icinde
+     - MGR MAP sync batch sonunda (satir satir degil)
+     - ENERGY_LREF IS NOT NULL ile kaldigi yerden devam
+   Backup: _backup_590_yyyyMMdd_HHmmss/
+   ============================================================ */
+USE energy;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_590_INSERT
+    @AGR_ID    BIGINT = NULL,
+    @CLEAN     BIT = 1,
+    @DEBUG     BIT = 1,
+    @BatchSize INT = 20000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 20000;
+    IF @BatchSize > 100000 SET @BatchSize = 100000;
+
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_ID_MAP', 'U') IS NULL
+       OR OBJECT_ID('izgazMGR.dbo.LS_OV_IADE_INVOICE', 'U') IS NULL
+    BEGIN
+        RAISERROR('izgazMGR LS_OV_ID_MAP / LS_OV_IADE_INVOICE yok (prodREADY dump).', 16, 1);
+        RETURN;
+    END
+
+    DECLARE @Msg NVARCHAR(400), @N INT, @BatchN INT, @Total BIGINT;
+    DECLARE @Ts VARCHAR(30) = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
+    DECLARE @MgrCnt BIGINT, @EnCnt BIGINT;
+    DECLARE @HasLineNrSrc BIT =
+        CASE WHEN COL_LENGTH('dbo.LS_005_01_INVLINES', 'ABYS_LINENR_SRC') IS NOT NULL
+             THEN 1 ELSE 0 END;
+
+    /* ---- MAP sync (resume: count esitse atla) ---- */
+    SELECT @MgrCnt = COUNT_BIG(*)
+    FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
+    WHERE (
+          @AGR_ID IS NULL
+       OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
+       OR (@AGR_ID > 0 AND ABYS_AGREEMENT_ID = @AGR_ID)
+        );
+
+    SELECT @EnCnt = COUNT_BIG(*)
+    FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
+    WHERE (
+          @AGR_ID IS NULL
+       OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
+       OR (@AGR_ID > 0 AND ABYS_AGREEMENT_ID = @AGR_ID)
+        );
+
+    IF @MgrCnt > 0 AND @EnCnt >= @MgrCnt
+    BEGIN
+        SET @Msg = @Ts + N' | E590 | INFO | MAP sync SKIP (en='
+                 + CAST(@EnCnt AS VARCHAR(20)) + N' mgr=' + CAST(@MgrCnt AS VARCHAR(20)) + N')';
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+    ELSE
+    BEGIN
+        SET @Msg = @Ts + N' | E590 | INFO | MAP sync MERGE basladi (en='
+                 + CAST(@EnCnt AS VARCHAR(20)) + N' mgr=' + CAST(@MgrCnt AS VARCHAR(20)) + N')';
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+        MERGE dbo.MIG_OV_ID_MAP AS t
+        USING (
+            SELECT * FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
+            WHERE (
+                  @AGR_ID IS NULL
+               OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
+               OR (@AGR_ID > 0 AND ABYS_AGREEMENT_ID = @AGR_ID)
+                )
+        ) s ON t.SRC_KEY = s.SRC_KEY
+        WHEN NOT MATCHED THEN INSERT (
+            OV_KIND, SRC_KEY, LREF_HINT, PARENT_SRC_KEY, REF_MAIN_LREF,
+            ABYS_AGREEMENT_ID, ABYS_ACCOUNT_ID, ABYS_ID_BUSINESS, ENERGY_LREF
+        ) VALUES (
+            s.OV_KIND,
+            s.SRC_KEY,
+            s.LREF_HINT,
+            s.PARENT_SRC_KEY,
+            s.REF_MAIN_LREF,
+            s.ABYS_AGREEMENT_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ID_BUSINESS, NULL
+        )
+        OPTION (RECOMPILE, MAXDOP 24);
+
+        SET @Ts = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
+        SET @Msg = @Ts + N' | E590 | INFO | MAP sync MERGE bitti';
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    SET @Ts = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
+    SET @Msg = @Ts + N' | E590 | INFO | INSERT basladi | AGR='
+             + CASE WHEN @AGR_ID IS NULL THEN N'FULL' WHEN @AGR_ID = -1 THEN N'NO_AGR' ELSE CAST(@AGR_ID AS NVARCHAR(30)) END
+             + N' Batch=' + CAST(@BatchSize AS VARCHAR(10));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    /* ---- IADE INVOICE staging ---- */
+    IF OBJECT_ID('tempdb..#IADE_INS') IS NOT NULL DROP TABLE #IADE_INS;
+    SELECT
+        s.SRC_KEY AS SRC_KEY,
+        CAST(s.LREF_HINT AS INT) AS LREF_HINT,
+        CAST(s.IOCODE AS TINYINT) AS IOCODE,
+        LEFT(s.FICHENO, 45) AS FICHENO,
+        energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.DATE_ AS DATETIME2)) AS DATE_,
+        energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.DUEDATE AS DATETIME2)) AS DUEDATE,
+        CAST(s.[TYPE] AS TINYINT) AS [TYPE],
+        CAST(s.CLIENTREF AS INT) AS CLIENTREF,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TLTOTAL)) AS TLTOTAL,
+        CAST(160 AS SMALLINT) AS CURID,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.CURTOTAL)) AS CURTOTAL,
+        LEFT(s.EXPLAIN, 250) AS EXPLAIN,
+        CAST(0 AS BIT) AS CANCELED,
+        CAST(s.OWNERREF AS INT) AS OWNERREF,
+        CAST(ISNULL(s.OWNERTYPE, 91) AS TINYINT) AS OWNERTYPE,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TAX)) AS TAX,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), ISNULL(s.DV, 0))) AS DV,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.GRANDTOTAL)) AS GRANDTOTAL,
+        CAST(ISNULL(s.PRINTCOUNT, 0) AS INT) AS PRINTCOUNT,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.PAYABLETOTAL)) AS PAYABLETOTAL,
+        CAST(1 AS BIT) AS CLOSED,
+        CAST(s.RETURN_SOURCE_INVREF AS INT) AS RETURN_SOURCE_INVREF,
+        TRY_CAST(s.FITNO AS BIGINT) AS FITNO,
+        TRY_CAST(s.BN_TYPE AS INT) AS BN_TYPE,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), COALESCE(s.AMOUNT, s.PAYABLETOTAL))) AS AMOUNT,
+        s.PERIOD,
+        CAST(ISNULL(s.HAS_DISCOUNT, 0) AS BIT) AS HAS_DISCOUNT,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), ISNULL(s.DISCOUNT_AMOUNT, 0))) AS DISCOUNT_AMOUNT,
+        energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.ADDDATE AS DATETIME2)) AS ADDDATE,
+        energy.dbo.FN_MIG_MAP_USER_USERID(CAST(s.ADDUSER AS INT)) AS ADDUSER,
+        s.ABYS_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ACTION_TYPE_ID, s.ABYS_AGREEMENT_ID
+    INTO #IADE_INS
+    FROM izgazMGR.dbo.LS_OV_IADE_INVOICE s WITH (NOLOCK)
+    WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL AND s.ABYS_ACCOUNT_ID IS NOT NULL)
+           OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+      AND NOT EXISTS (
+            SELECT 1 FROM dbo.MIG_OV_ID_MAP m
+            WHERE m.SRC_KEY = s.SRC_KEY
+              AND m.ENERGY_LREF IS NOT NULL
+          )
+    OPTION (RECOMPILE, MAXDOP 24);
+
+    CREATE UNIQUE CLUSTERED INDEX UX_IADE_INS_SRC ON #IADE_INS (SRC_KEY);
+
+    SET @N = (SELECT COUNT(*) FROM #IADE_INS);
+    SET @Msg = N'590 INSERT IADE_INV pending=' + CAST(@N AS VARCHAR(20));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    /* LREF_HINT path — IDENTITY_INSERT (nadir; eski cursor bunlari atliyordu) */
+    IF EXISTS (SELECT 1 FROM #IADE_INS WHERE LREF_HINT IS NOT NULL)
+    BEGIN
+        SET IDENTITY_INSERT dbo.LS_005_01_INVOICE ON;
+        BEGIN TRY
+            INSERT INTO dbo.LS_005_01_INVOICE (
+                LREF, IOCODE, FICHENO, DATE_, DUEDATE, [TYPE], CLIENTREF,
+                TLTOTAL, CURID, CURTOTAL, EXPLAIN, CANCELED, OWNERREF, OWNERTYPE,
+                TAX, DV, GRANDTOTAL, PRINTCOUNT, PAYABLETOTAL, CLOSED,
+                RETURN_SOURCE_INVREF, RETURN_TARGET_INVREF,
+                FITNO, BN_TYPE, AMOUNT, PERIOD, HAS_DISCOUNT, DISCOUNT_AMOUNT,
+                ADDDATE, ADDUSER,
+                ABYS_ID, ABYS_ACCOUNT_ID, ABYS_ACTION_TYPE_ID, ABYS_AGREEMENT_ID
+            )
+            SELECT
+                s.LREF_HINT, s.IOCODE, s.FICHENO, s.DATE_, s.DUEDATE, s.[TYPE], s.CLIENTREF,
+                s.TLTOTAL, s.CURID, s.CURTOTAL, s.EXPLAIN, s.CANCELED, s.OWNERREF, s.OWNERTYPE,
+                s.TAX, s.DV, s.GRANDTOTAL, s.PRINTCOUNT, s.PAYABLETOTAL, s.CLOSED,
+                s.RETURN_SOURCE_INVREF, NULL,
+                s.FITNO, s.BN_TYPE, s.AMOUNT, s.PERIOD, s.HAS_DISCOUNT, s.DISCOUNT_AMOUNT,
+                s.ADDDATE, s.ADDUSER,
+                s.ABYS_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ACTION_TYPE_ID, s.ABYS_AGREEMENT_ID
+            FROM #IADE_INS s
+            WHERE s.LREF_HINT IS NOT NULL
+              AND NOT EXISTS (
+                    SELECT 1 FROM dbo.LS_005_01_INVOICE t WHERE t.LREF = s.LREF_HINT
+                  )
+            OPTION (RECOMPILE, MAXDOP 24);
+            SET @N = @@ROWCOUNT;
+        END TRY
+        BEGIN CATCH
+            BEGIN TRY SET IDENTITY_INSERT dbo.LS_005_01_INVOICE OFF; END TRY BEGIN CATCH END CATCH;
+            THROW;
+        END CATCH
+        BEGIN TRY SET IDENTITY_INSERT dbo.LS_005_01_INVOICE OFF; END TRY BEGIN CATCH END CATCH;
+
+        UPDATE m SET m.ENERGY_LREF = s.LREF_HINT
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN #IADE_INS s ON s.SRC_KEY = m.SRC_KEY
+        WHERE s.LREF_HINT IS NOT NULL AND m.ENERGY_LREF IS NULL;
+
+        UPDATE m SET m.ENERGY_LREF = s.LREF_HINT
+        FROM izgazMGR.dbo.LS_OV_ID_MAP m
+        INNER JOIN #IADE_INS s ON s.SRC_KEY = m.SRC_KEY
+        WHERE s.LREF_HINT IS NOT NULL AND m.ENERGY_LREF IS NULL;
+
+        DELETE FROM #IADE_INS WHERE LREF_HINT IS NOT NULL;
+
+        SET @Msg = N'590 INSERT IADE_INV LREF_HINT insert=' + CAST(@N AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    /* IDENTITY path — MERGE OUTPUT batch (cursor yok) */
+    SET @Total = 0;
+    WHILE EXISTS (SELECT 1 FROM #IADE_INS WHERE LREF_HINT IS NULL)
+    BEGIN
+        IF OBJECT_ID('tempdb..#IADE_INV_BATCH') IS NOT NULL DROP TABLE #IADE_INV_BATCH;
+        SELECT TOP (@BatchSize) SRC_KEY
+        INTO #IADE_INV_BATCH
+        FROM #IADE_INS
+        WHERE LREF_HINT IS NULL
+        ORDER BY SRC_KEY;
+
+        CREATE UNIQUE CLUSTERED INDEX UX_IADE_INV_BATCH ON #IADE_INV_BATCH (SRC_KEY);
+
+        IF OBJECT_ID('tempdb..#IADE_INV_OUT') IS NOT NULL DROP TABLE #IADE_INV_OUT;
+        CREATE TABLE #IADE_INV_OUT (
+            ENERGY_LREF INT NOT NULL,
+            SRC_KEY VARCHAR(80) NOT NULL
+        );
+
+        BEGIN TRAN;
+
+        MERGE dbo.LS_005_01_INVOICE WITH (HOLDLOCK) AS t
+        USING (
+            SELECT s.*
+            FROM #IADE_INS s
+            INNER JOIN #IADE_INV_BATCH b ON b.SRC_KEY = s.SRC_KEY
+        ) AS s
+        ON 1 = 0
+        WHEN NOT MATCHED THEN INSERT (
+            IOCODE, FICHENO, DATE_, DUEDATE, [TYPE], CLIENTREF,
+            TLTOTAL, CURID, CURTOTAL, EXPLAIN, CANCELED, OWNERREF, OWNERTYPE,
+            TAX, DV, GRANDTOTAL, PRINTCOUNT, PAYABLETOTAL, CLOSED,
+            RETURN_SOURCE_INVREF, RETURN_TARGET_INVREF,
+            FITNO, BN_TYPE, AMOUNT, PERIOD, HAS_DISCOUNT, DISCOUNT_AMOUNT,
+            ADDDATE, ADDUSER,
+            ABYS_ID, ABYS_ACCOUNT_ID, ABYS_ACTION_TYPE_ID, ABYS_AGREEMENT_ID
+        ) VALUES (
+            s.IOCODE, s.FICHENO, s.DATE_, s.DUEDATE, s.[TYPE], s.CLIENTREF,
+            s.TLTOTAL, s.CURID, s.CURTOTAL, s.EXPLAIN, s.CANCELED, s.OWNERREF, s.OWNERTYPE,
+            s.TAX, s.DV, s.GRANDTOTAL, s.PRINTCOUNT, s.PAYABLETOTAL, s.CLOSED,
+            s.RETURN_SOURCE_INVREF, NULL,
+            s.FITNO, s.BN_TYPE, s.AMOUNT, s.PERIOD, s.HAS_DISCOUNT, s.DISCOUNT_AMOUNT,
+            s.ADDDATE, s.ADDUSER,
+            s.ABYS_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ACTION_TYPE_ID, s.ABYS_AGREEMENT_ID
+        )
+        OUTPUT inserted.LREF, s.SRC_KEY INTO #IADE_INV_OUT (ENERGY_LREF, SRC_KEY)
+        OPTION (RECOMPILE);
+
+        SET @BatchN = @@ROWCOUNT;
+
+        UPDATE m SET m.ENERGY_LREF = o.ENERGY_LREF
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN #IADE_INV_OUT o ON o.SRC_KEY = m.SRC_KEY
+        WHERE m.ENERGY_LREF IS NULL;
+
+        UPDATE m SET m.ENERGY_LREF = o.ENERGY_LREF
+        FROM izgazMGR.dbo.LS_OV_ID_MAP m
+        INNER JOIN #IADE_INV_OUT o ON o.SRC_KEY = m.SRC_KEY
+        WHERE m.ENERGY_LREF IS NULL;
+
+        DELETE s
+        FROM #IADE_INS s
+        INNER JOIN #IADE_INV_BATCH b ON b.SRC_KEY = s.SRC_KEY;
+
+        COMMIT TRAN;
+
+        SET @Total += @BatchN;
+        IF @DEBUG = 1
+        BEGIN
+            SET @Msg = N'590 IADE_INV batch +' + CAST(@BatchN AS VARCHAR(20))
+                     + N' total=' + CAST(@Total AS VARCHAR(20))
+                     + N' left=' + CAST((SELECT COUNT(*) FROM #IADE_INS) AS VARCHAR(20));
+            RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+        END
+
+        IF @BatchN = 0 BREAK;
+    END
+
+    SET @Ts = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
+    SET @Msg = @Ts + N' | E590 | INFO | IADE_INV IDENTITY insert=' + CAST(@Total AS VARCHAR(20));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    /* MAIN_UPD — CANCEL_* (RETURN_TARGET WIRE'da) */
+    UPDATE inv
+    SET inv.CANCEL_DATE = energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(u.CANCEL_DATE AS DATETIME2)),
+        inv.CANCEL_REASON_ID = CAST(u.CANCEL_REASON_ID AS INT),
+        inv.CANCEL_USER_ID = energy.dbo.FN_MIG_MAP_USER_USERID(CAST(u.CANCEL_USER_ID AS INT)),
+        inv.CLOSED = CAST(1 AS BIT),
+        inv.CANCELED = CAST(0 AS BIT)
+    FROM dbo.LS_005_01_INVOICE inv
+    INNER JOIN izgazMGR.dbo.LS_OV_MAIN_UPD u WITH (NOLOCK)
+        ON inv.LREF = CAST(u.LREF AS INT)
+    WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND u.ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND u.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+    OPTION (RECOMPILE, MAXDOP 24);
+
+    IF @DEBUG = 1
+    BEGIN
+        SET @Msg = N'590 INSERT MAIN_UPD(cancel)=' + CAST(@@ROWCOUNT AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    /* ---- IADE INVLINES staging ---- */
+    IF OBJECT_ID('tempdb..#IADE_IL') IS NOT NULL DROP TABLE #IADE_IL;
+    SELECT
+        s.SRC_KEY AS SRC_KEY,
+        s.INVOICE_SRC_KEY AS INVOICE_SRC_KEY,
+        CAST(s.CLIENTREF AS INT) AS CLIENTREF,
+        energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.DATE_ AS DATETIME2)) AS DATE_,
+        CAST(s.[TYPE] AS TINYINT) AS [TYPE],
+        CAST(s.LINENR AS SMALLINT) AS LINENR,
+        CAST(s.LINENR_SRC AS SMALLINT) AS LINENR_SRC,
+        CAST(s.TRANSTYPE AS INT) AS TRANSTYPE,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.AMOUNT)) AS AMOUNT,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TLTOTAL)) AS TLTOTAL,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TAX)) AS TAX,
+        CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.GRANDTOTAL)) AS GRANDTOTAL,
+        LEFT(s.LINEEXP, 100) AS LINEEXP,
+        s.ABYS_INCOME_ROW_ID, s.ABYS_INCOME_ID,
+        s.ABYS_AGREEMENT_ID, s.ABYS_SOURCE_LINE_LREF
+    INTO #IADE_IL
+    FROM izgazMGR.dbo.LS_OV_IADE_INVLINES s WITH (NOLOCK)
+    WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+      AND NOT EXISTS (
+            SELECT 1 FROM dbo.MIG_OV_ID_MAP m
+            WHERE m.SRC_KEY = s.SRC_KEY
+              AND m.ENERGY_LREF IS NOT NULL
+          )
+    OPTION (RECOMPILE, MAXDOP 24);
+
+    CREATE UNIQUE CLUSTERED INDEX UX_IADE_IL_SRC ON #IADE_IL (SRC_KEY);
+    CREATE NONCLUSTERED INDEX IX_IADE_IL_INV ON #IADE_IL (INVOICE_SRC_KEY);
+
+    SET @N = (SELECT COUNT(*) FROM #IADE_IL);
+    SET @Msg = N'590 INSERT IADE_IL pending=' + CAST(@N AS VARCHAR(20));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    /* Parent gate — eksik IADE_INV ENERGY_LREF */
+    IF EXISTS (
+        SELECT 1
+        FROM #IADE_IL s
+        LEFT JOIN dbo.MIG_OV_ID_MAP mi ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+        WHERE mi.ENERGY_LREF IS NULL
+    )
+    BEGIN
+        DECLARE @BadParent VARCHAR(80);
+        SELECT TOP (1) @BadParent = s.INVOICE_SRC_KEY
+        FROM #IADE_IL s
+        LEFT JOIN dbo.MIG_OV_ID_MAP mi ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+        WHERE mi.ENERGY_LREF IS NULL;
+
+        SET @Msg = N'590 INSERT: parent IADE ENERGY_LREF yok ' + ISNULL(@BadParent, N'?');
+        RAISERROR('%s', 16, 1, @Msg);
+        RETURN;
+    END
+
+    SET @Total = 0;
+    WHILE EXISTS (SELECT 1 FROM #IADE_IL)
+    BEGIN
+        IF OBJECT_ID('tempdb..#IADE_IL_BATCH') IS NOT NULL DROP TABLE #IADE_IL_BATCH;
+        SELECT TOP (@BatchSize)
+            s.SRC_KEY,
+            s.INVOICE_SRC_KEY,
+            s.CLIENTREF, s.DATE_, s.[TYPE], s.LINENR, s.LINENR_SRC, s.TRANSTYPE,
+            s.AMOUNT, s.TLTOTAL, s.TAX, s.GRANDTOTAL, s.LINEEXP,
+            s.ABYS_AGREEMENT_ID,
+            mi.ENERGY_LREF AS INVOICE_LREF
+        INTO #IADE_IL_BATCH
+        FROM #IADE_IL s
+        INNER JOIN dbo.MIG_OV_ID_MAP mi ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+        WHERE mi.ENERGY_LREF IS NOT NULL
+        ORDER BY s.SRC_KEY;
+
+        CREATE UNIQUE CLUSTERED INDEX UX_IADE_IL_BATCH ON #IADE_IL_BATCH (SRC_KEY);
+
+        IF OBJECT_ID('tempdb..#IADE_IL_OUT') IS NOT NULL DROP TABLE #IADE_IL_OUT;
+        CREATE TABLE #IADE_IL_OUT (
+            ENERGY_LREF INT NOT NULL,
+            SRC_KEY VARCHAR(80) NOT NULL
+        );
+
+        BEGIN TRAN;
+
+        IF @HasLineNrSrc = 1
+        BEGIN
+            MERGE dbo.LS_005_01_INVLINES WITH (HOLDLOCK) AS t
+            USING (SELECT * FROM #IADE_IL_BATCH) AS s
+            ON 1 = 0
+            WHEN NOT MATCHED THEN INSERT (
+                INVOICEREF, CLIENTREF, DATE_, [TYPE], LINENR, TRANSTYPE,
+                AMOUNT, TLTOTAL, TAX, GRANDTOTAL, LINEEXP,
+                ABYS_ID, ABYS_AGREEMENT_ID, ABYS_LINENR_SRC
+            ) VALUES (
+                s.INVOICE_LREF, s.CLIENTREF, s.DATE_, s.[TYPE], s.LINENR, s.TRANSTYPE,
+                s.AMOUNT, s.TLTOTAL, s.TAX, s.GRANDTOTAL, s.LINEEXP,
+                NULL, s.ABYS_AGREEMENT_ID, s.LINENR_SRC
+            )
+            OUTPUT inserted.LREF, s.SRC_KEY INTO #IADE_IL_OUT (ENERGY_LREF, SRC_KEY)
+            OPTION (RECOMPILE);
+        END
+        ELSE
+        BEGIN
+            MERGE dbo.LS_005_01_INVLINES WITH (HOLDLOCK) AS t
+            USING (SELECT * FROM #IADE_IL_BATCH) AS s
+            ON 1 = 0
+            WHEN NOT MATCHED THEN INSERT (
+                INVOICEREF, CLIENTREF, DATE_, [TYPE], LINENR, TRANSTYPE,
+                AMOUNT, TLTOTAL, TAX, GRANDTOTAL, LINEEXP,
+                ABYS_ID, ABYS_AGREEMENT_ID
+            ) VALUES (
+                s.INVOICE_LREF, s.CLIENTREF, s.DATE_, s.[TYPE], s.LINENR, s.TRANSTYPE,
+                s.AMOUNT, s.TLTOTAL, s.TAX, s.GRANDTOTAL, s.LINEEXP,
+                NULL, s.ABYS_AGREEMENT_ID
+            )
+            OUTPUT inserted.LREF, s.SRC_KEY INTO #IADE_IL_OUT (ENERGY_LREF, SRC_KEY)
+            OPTION (RECOMPILE);
+        END
+
+        SET @BatchN = @@ROWCOUNT;
+
+        UPDATE m SET m.ENERGY_LREF = o.ENERGY_LREF
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN #IADE_IL_OUT o ON o.SRC_KEY = m.SRC_KEY
+        WHERE m.ENERGY_LREF IS NULL;
+
+        UPDATE m SET m.ENERGY_LREF = o.ENERGY_LREF
+        FROM izgazMGR.dbo.LS_OV_ID_MAP m
+        INNER JOIN #IADE_IL_OUT o ON o.SRC_KEY = m.SRC_KEY
+        WHERE m.ENERGY_LREF IS NULL;
+
+        DELETE s
+        FROM #IADE_IL s
+        INNER JOIN #IADE_IL_BATCH b ON b.SRC_KEY = s.SRC_KEY;
+
+        COMMIT TRAN;
+
+        SET @Total += @BatchN;
+        IF @DEBUG = 1
+        BEGIN
+            SET @Msg = N'590 IADE_IL batch +' + CAST(@BatchN AS VARCHAR(20))
+                     + N' total=' + CAST(@Total AS VARCHAR(20))
+                     + N' left=' + CAST((SELECT COUNT(*) FROM #IADE_IL) AS VARCHAR(20));
+            RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+        END
+
+        IF @BatchN = 0 BREAK;
+    END
+
+    IF @DEBUG = 1
+    BEGIN
+        SET @Msg = N'590 INSERT IADE_IL=' + CAST(@Total AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    /* KISMI INVLINES — LREF = income ID (IDENTITY_INSERT); batch */
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_KISMI_INVLINES', 'U') IS NOT NULL
+    BEGIN
+        DECLARE @KismiBatch INT = 50000;
+        DECLARE @KismiLo BIGINT = 0;
+        DECLARE @KismiHi BIGINT;
+        DECLARE @KismiTotal BIGINT = 0;
+        DECLARE @KismiN INT;
+
+        SELECT @KismiHi = ISNULL(MAX(LREF), 0)
+        FROM izgazMGR.dbo.LS_OV_KISMI_INVLINES WITH (NOLOCK)
+        WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND ABYS_AGREEMENT_ID = @AGR_ID)
+            );
+
+        WHILE @KismiLo < @KismiHi
+        BEGIN
+            SET IDENTITY_INSERT dbo.LS_005_01_INVLINES ON;
+            BEGIN TRY
+                INSERT INTO dbo.LS_005_01_INVLINES (
+                    LREF, INVOICEREF, CLIENTREF, DATE_, [TYPE], LINENR, TRANSTYPE,
+                    AMOUNT, TLTOTAL, TAX, GRANDTOTAL, LINEEXP,
+                    ABYS_ID, ABYS_AGREEMENT_ID
+                )
+                SELECT
+                    CAST(s.LREF AS INT),
+                    CAST(s.INVOICEREF AS INT),
+                    CAST(s.CLIENTREF AS INT),
+                    energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.DATE_ AS DATETIME2)),
+                    CAST(s.[TYPE] AS TINYINT),
+                    CAST(s.LINENR AS SMALLINT),
+                    CAST(s.TRANSTYPE AS INT),
+                    CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.AMOUNT)),
+                    CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TLTOTAL)),
+                    CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TAX)),
+                    CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.GRANDTOTAL)),
+                    LEFT(ISNULL(NULLIF(LTRIM(RTRIM(s.LINEEXP)), ''), N'Kısmi Eksilten'), 100),
+                    s.ABYS_INCOME_ROW_ID,
+                    s.ABYS_AGREEMENT_ID
+                FROM izgazMGR.dbo.LS_OV_KISMI_INVLINES s WITH (NOLOCK)
+                WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+                  AND s.LREF > @KismiLo
+                  AND s.LREF <= @KismiLo + @KismiBatch
+                  AND s.LREF BETWEEN 1 AND 2147483647
+                  AND NOT EXISTS (
+                        SELECT 1 FROM dbo.LS_005_01_INVLINES t WHERE t.LREF = CAST(s.LREF AS INT)
+                      )
+                OPTION (RECOMPILE, MAXDOP 48);
+                SET @KismiN = @@ROWCOUNT;
+            END TRY
+            BEGIN CATCH
+                BEGIN TRY SET IDENTITY_INSERT dbo.LS_005_01_INVLINES OFF; END TRY BEGIN CATCH END CATCH;
+                SET @Msg = N'590 KISMI_IL batch FAIL LREF>' + CAST(@KismiLo AS NVARCHAR(20))
+                         + N': ' + ERROR_MESSAGE();
+                RAISERROR('%s', 16, 1, @Msg);
+                RETURN;
+            END CATCH
+            BEGIN TRY SET IDENTITY_INSERT dbo.LS_005_01_INVLINES OFF; END TRY BEGIN CATCH END CATCH;
+
+            SET @KismiTotal += @KismiN;
+            SET @KismiLo += @KismiBatch;
+            IF @DEBUG = 1 AND @KismiN > 0
+            BEGIN
+                SET @Msg = N'590 KISMI_IL batch LREF<=' + CAST(@KismiLo AS NVARCHAR(20))
+                         + N' +' + CAST(@KismiN AS NVARCHAR(20))
+                         + N' total=' + CAST(@KismiTotal AS NVARCHAR(20));
+                RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+            END
+        END
+
+        UPDATE m SET m.ENERGY_LREF = CAST(s.LREF AS INT)
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN izgazMGR.dbo.LS_OV_KISMI_INVLINES s
+            ON m.OV_KIND = 'KISMI_IL'
+           AND m.LREF_HINT = CAST(s.LREF AS BIGINT)
+        WHERE m.ENERGY_LREF IS NULL
+          AND (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+        OPTION (RECOMPILE, MAXDOP 48);
+
+        IF @DEBUG = 1
+        BEGIN
+            SET @Msg = N'590 INSERT KISMI_IL=' + CAST(@KismiTotal AS VARCHAR(20));
+            RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+        END
+    END
+
+    /* KISMI HDR */
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_KISMI_HDR', 'U') IS NOT NULL
+    BEGIN
+        UPDATE inv
+        SET inv.TLTOTAL = CONVERT(FLOAT, CONVERT(DECIMAL(18,2), h.TLTOTAL)),
+            inv.TAX = CONVERT(FLOAT, CONVERT(DECIMAL(18,2), h.TAX)),
+            inv.GRANDTOTAL = CONVERT(FLOAT, CONVERT(DECIMAL(18,2), h.GRANDTOTAL)),
+            inv.PAYABLETOTAL = CONVERT(FLOAT, CONVERT(DECIMAL(18,2), h.PAYABLETOTAL)),
+            inv.EXPLAIN = LEFT(
+                CASE WHEN inv.EXPLAIN IS NULL OR LTRIM(RTRIM(inv.EXPLAIN)) = ''
+                     THEN h.EXPLAIN_NOTE
+                     ELSE inv.EXPLAIN + N' | ' + (h.EXPLAIN_NOTE) END, 250)
+        FROM dbo.LS_005_01_INVOICE inv
+        INNER JOIN izgazMGR.dbo.LS_OV_KISMI_HDR h WITH (NOLOCK)
+            ON inv.LREF = CAST(h.LREF AS INT)
+        WHERE (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND h.ABYS_AGREEMENT_ID IS NULL)
+           OR (@AGR_ID > 0 AND h.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+        OPTION (RECOMPILE, MAXDOP 24);
+        IF @DEBUG = 1
+        BEGIN
+            SET @Msg = N'590 INSERT KISMI_HDR=' + CAST(@@ROWCOUNT AS VARCHAR(20));
+            RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+        END
+    END
+
+    SET @Ts = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
+    SET @Msg = @Ts + N' | E590 | INFO | INSERT bitti — sonraki WIRE zorunlu';
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+END
+GO

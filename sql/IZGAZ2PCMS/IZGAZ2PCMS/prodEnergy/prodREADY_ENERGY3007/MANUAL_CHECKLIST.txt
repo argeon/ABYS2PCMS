@@ -1,0 +1,75 @@
+================================================================================
+prodREADY_ENERGY3007 — MANUEL CHECKLIST
+CTAS3007 → izgazMGR dump tamam → ENERGY
+Envanter: EXIT_MAP.md | Hizalama: ../PAKET_PATCH_HIZALAMA.md
+Operator: _______________   Tarih: ____/____/2026
+================================================================================
+Log: sqlcmd -i ... -o logs/energy3007/Exx_yyyymmdd_hhmm.log
+GATE_FAIL / Pilot FAIL → DUR
+================================================================================
+
+--- ÖNKOŞUL ---
+[ ] PRE master/HHD yüklü mü?     EXIT_MAP §1–2 (221/302/521/524/585…) ____ OK?
+[ ] AFL dump energy’de           LS_AFL_OPEN_DEBT (597 v5 + FRK)       ____ OK?
+[ ] O60 dump (TYPE110)           LS_OV_GUVENCE_IADE_* — yoksa D2 ATLA ____ OK/SKIP?
+
+--- DUMP PREP ---
+[ ] 00a dump audit               00a_dump_transfer_audit.sql         ____ OK?
+[ ] 00ix ONLINE IX (BULK skip)   00_ix_online_safe.sql               ____ DONE?
+[ ] IX 00_pre_indexes (TAH bitince) ../00_pre_indexes.sql            ____ DONE?
+[ ] 00b OV varchar align         ../prodREADY_ENERGY/00b_align…      ____ DONE?
+[ ] 00c KISMI LINEEXP enrich     ../prodREADY_ENERGY/00c_enrich…     ____ DONE?
+[ ] 00  izgazMGR gate            00_izgazmgr_gate_checkpoint.sql     ____ PASS?
+[ ] 01  Pilot AGR spot           01_PILOT_SPOT.md (wizard)           ____ OK?
+[ ] 05  energy COLLATE CP1254    05_collation_cp1254.sql (sqlcmd -I) ____ DONE?
+[ ] 05b column COLLATE CP1254    05b_columns_cp1254.sql (sqlcmd -I)  ____ DONE?
+[ ] 05c izgazMGR COLLATE CP1254  05c_izgazmgr_collation_cp1254.sql   ____ DONE?
+
+--- SETUP + DEPLOY (PAKET) ---
+[ ] 10a log setup                ../prodREADY_ENERGY/00_log_setup.sql ____
+[ ] 10b map tables               ../prodREADY_ENERGY/00_map_tables.sql ____
+[ ] 10c MAP copy                 10_setup_and_map.sql                ____
+[ ] 10d abys columns             ../prodREADY_ENERGY/00_abys_columns.sql ____
+[ ] 10e linenr smallint          ../prodREADY_ENERGY/01_linenr_smallint.sql ____
+[ ] 10f SP deploy financial      10f + 571/590/597/611               ____ ALL OK?
+[ ] 28  597 v5 deploy            ../prodREADY_ENERGY/28_DEPLOY_597.sql ____ (NOTES_597_V5)
+[ ] E610 deploy 60→69            60/61/62/69 (O60 varsa)             ____ / SKIP
+
+--- EXEC (PAKET) ---
+[ ] 30c EXEC full chain          571→581→575→590→597 @NULL           ____ GATE_PASS?
+[ ] D2  E610 EXEC                SP_MIG_GUVENCE_IADE_ALL (69x)       ____ / SKIP
+[ ] 35  BANKREF resolve          35_... @0 + @AGR_ID                 ____
+[ ] 40  IPP apply                40_... @DRY_RUN=0 + @AGR_ID         ____
+[ ] 50e taksit execs             50e / 611→613 (gerekirse)           ____
+[ ] 92  STG close                ../90_afl_frk/92_... @DRY_RUN=0     ____
+
+--- VALIDATE (PAKET — salt / log) ---
+[ ] 95  TTK/INV/AFL fatura       95_ttk_inv_afl_fatura_rapor.sql     ____
+[ ] 99  AFL vs EN kalan          99_afl_vs_en_kalan_frk.sql          ____
+[ ] 97  SP_AGR_FRK_ALL           @OnlyDiff=1                         ____
+[ ] Spot AGR 3 (TAM) / 412056 / INV 66081785                         ____
+[ ] 90  check                    90_check_queries.sql                ____
+
+--- AÇIK KOD (heal ile “bitti” sayma — NOTES_CANLI) ---
+[ ] O20 ASIM/gecikme             CTAS 20 — ayrı iş                   ____ AÇIK?
+[ ] TAM+TYPE92 MAIN close        590/597/STG — ayrı iş               ____ AÇIK?
+[ ] Mahsup IL 162+1936           O30 — ayrı iş                       ____ AÇIK?
+
+--- AYRI PATCH (gerekirse; zincire koyma) ---
+[ ] 91 DUP / 91b FALSE_REF / 91c→91d / 22b — yalnız residual         ____ N/A?
+[ ] hotfix/03-04 — yeni dump+SP sonrası GEREKMEZ                     ____ N/A
+[ ] 98_TEST_* — CANLI YASAK                                          ____ YOK
+
+YASAK
+- Gate/Pilot FAIL ile devam
+- Tek basina 590/597 INSERT
+- 575 + O14 cift yazma
+- Master/HHD yokken full 571 cutover
+- 98_TEST_* / hotfix/03-04’ü full reload “çözüm” sayma
+- Açık kod #1–3’ü residual heal ile kapatılmış varsayma
+
+NOT: @AGR_ID=NULL FULL 3007de serbest; NO_AGR icin 30b (-1) veya FULL.
+Hizalama: ../PAKET_PATCH_HIZALAMA.md
+
+Imza: _______________   Bitis: ______
+================================================================================

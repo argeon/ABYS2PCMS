@@ -1,26 +1,32 @@
-﻿prodEnergy — PROD SIFIRDAN (CTAS ILE BASLAR)
+﻿prodEnergy — PROD SIFIRDAN (MAP modeli)
 
-PLAN: MANUAL_RUN_PLAN_GREENFIELD.txt
+PLAN: oracleCTAS/prodREADY/ + prodEnergy/prodREADY_ENERGY/
+(eski prod2 / 590__full sentetik LREF — KULLANMA)
 
 ================================================================
-SIMDI: ORACLE CTAS BASTAN (manuel sqlplus, prod2/)
+1) ORACLE CTAS — oracleCTAS/prodREADY/
 ================================================================
-O0   00_session_parallel.sql          ★ ILK
-O0b  00_mig_param_full.sql
-O10  10_stg_inv_acc_inc.sql
-O11  11_ls_invoice.sql
-O12  12_ls_invlines.sql
-O13  13_ls_mig_agr_list.sql
-O14  14_ls_debt_paytrans.sql
-O20  20_ls_eksilten_overlay.sql
-O27  27_gate_eksilten.sql
-O30  30_ls_tahsilat_overlay.sql       (full; 31_ONLY degil)
-O40  40_ls_tahsilat_log.sql           (ops)
-O41  41_gate_tahsilat.sql
-O50  50_ls_afl_open_debt.sql
+O0..O14 tahakkuk (LINENR+LINENR_SRC, CURID=160)
+O20 eksilten SRC_KEY | O27 GATE
+O30 tahsilat SRC_KEY | O32 DEBT_PAID+LASTPAID ★ | O35 LS_OV_ID_MAP ★ | O41 GATE | O50 AFL
 
-Sonra: Dump → L0/E0 → AGR kontrol → 571→581→575 → 590→597 → E60/E70/E91
-Hotfix YOK | 00_run_all kullanma (yedek; O50 ekli)
+================================================================
+2) DUMP → izgazMGR (LS_* + LS_OV_* + LS_OV_ID_MAP)
+================================================================
+
+================================================================
+3) ENERGY — prodREADY_ENERGY/ + ProdIzgazMgr2Energy
+================================================================
+SETUP: 00_log_setup ★ → 00_map_tables → 00_abys_columns → 01_linenr
+ANA:   EXEC 571 INVOICE → 581 INVLINES → 575 DEBT PT   ★ ONCE
+OV:    deploy 590 → EXEC SP_MIG_590_ALL
+       deploy 597 → EXEC SP_MIG_597_ALL
+→ EXEC SP_MIG_LOG_STATUS (FAIL yok)
+→ E60/E70/E91 → 613 ops
+(590/597 = overlay; ana yukleme degil)
+
+Log: MIG_STEP_LOG | Oracle: MIG_CTAS_LOG
+Hotfix YOK | tek basina INSERT YASAK | GATE_FAIL→DUR
 
 Delta (eski energy yama): MANUAL_RUN_PLAN.txt
 Log (energy asamasinda): 00_mig_step_log__*

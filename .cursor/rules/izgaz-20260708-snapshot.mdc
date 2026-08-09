@@ -1,0 +1,25 @@
+---
+description: IZGAZ2PCMS canlı paket + 20260708 arşiv snapshot
+alwaysApply: true
+---
+
+# IZGAZ2PCMS paket düzeni
+
+**Canlı (195 senkron):** `sql/IZGAZ2PCMS/IZGAZ2PCMS/prodEnergy/`  
+(`prodREADY_ENERGY` + `prodREADY_ENERGY3007` + `90_afl_frk`)
+
+**Tarihli arşiv snapshot:** `sql/IZGAZ2PCMS/IZGAZ2PCMS/BACKUP/20260708/`  
+Kaynaklar `prodEnergy` (+ BACKUP içindeki CTAS / Mgr2Energy); snapshot kopyadır.
+
+- **CTAS/** — `oracleCTAS3007` omurga + `oracleCTAS/prodREADY` (aynı ad → daha yeni). Ad = `NNN_ORIJINAL_AD.SQL`. Sıra: `000_RUN_ORDER.MD`
+- **ENERGY/** — `prodREADY_ENERGY` + Mgr2Energy (57x) + `prodREADY_ENERGY3007` + `90_afl_frk` + GUVENCE 610 + NOTES
+- **REPORT/** — kontrol / FRK / checklist kopyaları
+- Manifest: `README.md`, `MANIFEST_*.txt`
+- Yenile: `BACKUP/20260708/_sync_snapshot.ps1` (script içi yollar güncel tutulmalı)
+
+## Kurallar
+
+- Canlı düzenleme: **prodEnergy**. Snapshot’a bilinçli arşiv kopyası.
+- `BACKUP/` altındaki düz SQL / CTAS / eski yedekler arşiv; varsayılan çalışma yolu değil.
+- Scratch → repo `_tmp/`; loglar → repo `logs/`.
+- Yeni tarihli yedek: `BACKUP/YYYYMMDD/CTAS` + `ENERGY` + `REPORT`.

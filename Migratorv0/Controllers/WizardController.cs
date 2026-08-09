@@ -44,7 +44,9 @@ public class WizardController : ControllerBase
     {
         try
         {
-            var connectionString = $"User Id={request.Username};Password={request.Password};Data Source={request.Host}:{request.Port}/{request.Service};";
+            var connectionString =
+                $"User Id={request.Username};Password={request.Password};Data Source={request.Host}:{request.Port}/{request.Service};" +
+                "Max Pool Size=200;Min Pool Size=0;Connection Timeout=180;Validate Connection=true;";
             
             using var connection = new OracleConnection(connectionString);
             await connection.OpenAsync();
@@ -511,7 +513,17 @@ public class WizardController : ControllerBase
     {
         try
         {
-            var degreeOfParallelism = request.DegreeOfParallelism is > 0 and <= 128 ? request.DegreeOfParallelism.Value : 8;
+            var degreeOfParallelism = request.OracleParallel is > 0 and <= 128
+                ? request.OracleParallel.Value
+                : (request.DegreeOfParallelism is > 0 and <= 128 ? request.DegreeOfParallelism.Value : 56);
+            var sqlMaxDop = request.SqlMaxDop is > 0 and <= 128
+                ? request.SqlMaxDop.Value
+                : (request.PartitionDegreeOfParallelism is > 0 and <= 128
+                    ? request.PartitionDegreeOfParallelism.Value
+                    : 48);
+            var tableParallelism = request.TableParallelism is > 0 and <= 32
+                ? request.TableParallelism.Value
+                : 2;
             var batchSize = request.BatchSize is > 0 ? request.BatchSize.Value : 50_000;
             var fetchSizeMb = request.FetchSizeMB is > 0 ? request.FetchSizeMB.Value : 50;
             var validationMaxRows = request.ValidationMaxRowsForExtendedGates is >= 0
@@ -540,7 +552,9 @@ public class WizardController : ControllerBase
                 });
             }
 
-            var checkpointDbPath = Path.GetFullPath(Path.Combine(enginePath, "migration_checkpoint.db"));
+            // Relative: engine exe directory (works on both dev and deployed hosts).
+            // Absolute local paths break when appsettings is copied to another machine.
+            const string checkpointDbPath = "migration_checkpoint.db";
 
             var config = new
             {
@@ -550,6 +564,8 @@ public class WizardController : ControllerBase
                     MssqlConnectionString = request.MssqlConnectionString,
                     OracleSchema = request.OracleSchema,
                     DegreeOfParallelism = degreeOfParallelism,
+                    OracleParallel = degreeOfParallelism,
+                    TableParallelism = tableParallelism,
                     BatchSize = batchSize,
                     FetchSizeMB = fetchSizeMb,
                     Tables = tables,
@@ -567,7 +583,8 @@ public class WizardController : ControllerBase
                     EnableCompositePkHash = request.EnableCompositePkHash,
                     AutoStart = request.AutoStart,
                     ParallelPartitionLoad = request.ParallelPartitionLoad,
-                    PartitionDegreeOfParallelism = request.PartitionDegreeOfParallelism is > 0 ? request.PartitionDegreeOfParallelism.Value : 4,
+                    PartitionDegreeOfParallelism = sqlMaxDop,
+                    SqlMaxDop = sqlMaxDop,
                     UseStagingMerge = request.UseStagingMerge,
                     UsePartitionSwitch = request.UsePartitionSwitch,
                     UseBulkLoggedRecovery = request.UseBulkLoggedRecovery,
@@ -709,7 +726,9 @@ public class WizardController : ControllerBase
                     mssqlAuthType = request.MssqlAuthType,
                     mssqlTrustCert = request.MssqlTrustCert,
                     tables = request.Tables,
-                    degreeOfParallelism = request.DegreeOfParallelism ?? 8,
+                    degreeOfParallelism = request.OracleParallel ?? request.DegreeOfParallelism ?? 56,
+                    oracleParallel = request.OracleParallel ?? request.DegreeOfParallelism ?? 56,
+                    tableParallelism = request.TableParallelism ?? 2,
                     batchSize = request.BatchSize ?? 50000,
                     fetchSizeMB = request.FetchSizeMB ?? 50,
                     migrateIndexes = request.MigrateIndexes,
@@ -724,7 +743,8 @@ public class WizardController : ControllerBase
                     validationFailFast = request.ValidationFailFast,
                     enableCompositePkHash = request.EnableCompositePkHash,
                     parallelPartitionLoad = request.ParallelPartitionLoad,
-                    partitionDegreeOfParallelism = request.PartitionDegreeOfParallelism ?? 4,
+                    partitionDegreeOfParallelism = request.SqlMaxDop ?? request.PartitionDegreeOfParallelism ?? 48,
+                    sqlMaxDop = request.SqlMaxDop ?? request.PartitionDegreeOfParallelism ?? 48,
                     useStagingMerge = request.UseStagingMerge,
                     usePartitionSwitch = request.UsePartitionSwitch,
                     useBulkLoggedRecovery = request.UseBulkLoggedRecovery
@@ -953,6 +973,13 @@ public class StartMigrationRequest
 
     /// <summary>Nullable so JSON null (e.g. client NaN) does not fail model binding.</summary>
     public int? DegreeOfParallelism { get; set; }
+
+    /// <summary>Oracle extract slice count per table (preferred over DegreeOfParallelism).</summary>
+    public int? OracleParallel { get; set; }
+
+    /// <summary>How many tables/packages run concurrently. Independent of OracleParallel.</summary>
+    public int? TableParallelism { get; set; }
+
     public int? BatchSize { get; set; }
     public int? FetchSizeMB { get; set; }
 
@@ -973,8 +1000,11 @@ public class StartMigrationRequest
     /// <summary>When true, <c>dotnet run</c> in MigrationEngine starts migration without <c>--run</c>.</summary>
     public bool AutoStart { get; set; }
 
-    public bool ParallelPartitionLoad { get; set; }
+    public bool ParallelPartitionLoad { get; set; } = true;
     public int? PartitionDegreeOfParallelism { get; set; }
+
+    /// <summary>MSSQL-side partition concurrency (maps to PartitionDegreeOfParallelism). Default 48.</summary>
+    public int? SqlMaxDop { get; set; }
 
     /// <summary>
     /// When true, each partition is loaded into a dedicated staging table first.
@@ -1015,6 +1045,8 @@ public class SaveProfileRequest
     public string? OracleSchema { get; set; }
     public List<string>? Tables { get; set; }
     public int? DegreeOfParallelism { get; set; }
+    public int? OracleParallel { get; set; }
+    public int? TableParallelism { get; set; }
     public int? BatchSize { get; set; }
     public int? FetchSizeMB { get; set; }
     public bool MigrateIndexes { get; set; }
@@ -1027,8 +1059,9 @@ public class SaveProfileRequest
     public bool ValidatePerTableAfterLoad { get; set; }
     public bool ValidationFailFast { get; set; }
     public bool EnableCompositePkHash { get; set; }
-    public bool ParallelPartitionLoad { get; set; }
+    public bool ParallelPartitionLoad { get; set; } = true;
     public int? PartitionDegreeOfParallelism { get; set; }
+    public int? SqlMaxDop { get; set; }
     public bool UseStagingMerge { get; set; }
     public bool UsePartitionSwitch { get; set; }
     public bool UseBulkLoggedRecovery { get; set; } = true;

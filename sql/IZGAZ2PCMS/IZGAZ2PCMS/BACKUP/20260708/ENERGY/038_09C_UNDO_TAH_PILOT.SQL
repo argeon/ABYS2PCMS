@@ -1,0 +1,147 @@
+/* =============================================================================
+   prodREADY_ENERGY / 09c_UNDO_TAH_PILOT
+   Pilot tahsilat hasar temizligi (MAP modeli):
+
+     1) PAY_PT MAP → IOCODE<>0 overlay PT sil (borc IOCODE=0 ASLA silinmez)
+     2) TAH_INV MAP → TYPE=101 fis sil
+     3) CANCEL_PAY / CANCEL_REV overlay PT sil
+     4) MAP ENERGY_LREF NULL (PAY_PT, TAH_INV, CANCEL_*)
+        — carpisan MAP→borc PT dahil (satir kalir, MAP temizlenir)
+
+   @AGR_ID zorunlu (FULL YASAK)
+   @DRY_RUN=1 sadece sayim
+
+   sqlcmd:
+     -v AGR=99637 DRY=1
+   SSMS: asagidaki @AGR_ID / @DRY_RUN satirlarini duzenle.
+   ============================================================================= */
+USE energy;
+GO
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+DECLARE @AGR_ID  BIGINT = 99637;  /* << pilot */
+DECLARE @DRY_RUN BIT    = 0;      /* 1=sayim, 0=apply */
+
+IF @AGR_ID IS NULL
+BEGIN
+    RAISERROR('09c: @AGR_ID zorunlu (FULL yasak).', 16, 1);
+    RETURN;
+END
+
+DECLARE @d INT, @n BIGINT, @Msg NVARCHAR(300), @DryInt INT = CASE WHEN @DRY_RUN = 1 THEN 1 ELSE 0 END;
+RAISERROR('========== 09c UNDO TAH PILOT AGR=%I64d DRY=%d ==========', 0, 1, @AGR_ID, @DryInt) WITH NOWAIT;
+
+SELECT
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP m
+     WHERE m.ABYS_AGREEMENT_ID=@AGR_ID AND m.OV_KIND='PAY_PT' AND m.ENERGY_LREF IS NOT NULL) AS PAY_MAP,
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP m
+     JOIN dbo.LS_005_01_PAYTRANS pt ON pt.LREF=m.ENERGY_LREF
+     WHERE m.ABYS_AGREEMENT_ID=@AGR_ID AND m.OV_KIND='PAY_PT' AND ISNULL(pt.IOCODE,0)=0) AS MAP_TO_DEBT,
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP m
+     JOIN dbo.LS_005_01_PAYTRANS pt ON pt.LREF=m.ENERGY_LREF
+     WHERE m.ABYS_AGREEMENT_ID=@AGR_ID AND m.OV_KIND='PAY_PT' AND ISNULL(pt.IOCODE,0)<>0) AS MAP_TO_PAY_OV,
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP m
+     JOIN dbo.LS_005_01_INVOICE inv ON inv.LREF=m.ENERGY_LREF
+     WHERE m.ABYS_AGREEMENT_ID=@AGR_ID AND m.OV_KIND='TAH_INV' AND ISNULL(inv.[TYPE],0)=101) AS TAH_101,
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP m
+     WHERE m.ABYS_AGREEMENT_ID=@AGR_ID AND m.OV_KIND IN ('CANCEL_PAY','CANCEL_REV')
+       AND m.ENERGY_LREF IS NOT NULL) AS CANCEL_MAP;
+
+IF @DRY_RUN = 1
+BEGIN
+    RAISERROR('DRY_RUN=1 — silme yok. @DRY_RUN=0 ile apply.', 0, 1) WITH NOWAIT;
+    RETURN;
+END
+
+BEGIN TRY
+    SET IDENTITY_INSERT dbo.LS_005_01_PAYTRANS OFF;
+END TRY
+BEGIN CATCH
+END CATCH
+
+SET @n = 0;
+WHILE 1 = 1
+BEGIN
+    DELETE TOP (5000) pt
+    FROM dbo.LS_005_01_PAYTRANS pt WITH (ROWLOCK)
+    INNER JOIN dbo.MIG_OV_ID_MAP m
+        ON m.ENERGY_LREF = pt.LREF
+       AND m.OV_KIND = 'PAY_PT'
+       AND m.ABYS_AGREEMENT_ID = @AGR_ID
+    WHERE ISNULL(pt.IOCODE, 0) <> 0;
+
+    SET @d = @@ROWCOUNT;
+    IF @d = 0 BREAK;
+    SET @n += @d;
+    SET @Msg = N'PAY_OV PT -' + CAST(@d AS NVARCHAR(20)) + N' (tot ' + CAST(@n AS NVARCHAR(20)) + N')';
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+END
+RAISERROR('--- 1/4 PAY overlay PT done tot=%I64d ---', 0, 1, @n) WITH NOWAIT;
+
+SET @n = 0;
+WHILE 1 = 1
+BEGIN
+    DELETE TOP (5000) pt
+    FROM dbo.LS_005_01_PAYTRANS pt WITH (ROWLOCK)
+    INNER JOIN dbo.MIG_OV_ID_MAP m
+        ON m.ENERGY_LREF = pt.LREF
+       AND m.OV_KIND IN ('CANCEL_PAY', 'CANCEL_REV')
+       AND m.ABYS_AGREEMENT_ID = @AGR_ID;
+
+    SET @d = @@ROWCOUNT;
+    IF @d = 0 BREAK;
+    SET @n += @d;
+    RAISERROR('CANCEL PT -%d (tot %I64d)', 0, 1, @d, @n) WITH NOWAIT;
+END
+RAISERROR('--- 2/4 CANCEL PT done tot=%I64d ---', 0, 1, @n) WITH NOWAIT;
+
+SET @n = 0;
+WHILE 1 = 1
+BEGIN
+    DELETE TOP (5000) inv
+    FROM dbo.LS_005_01_INVOICE inv WITH (ROWLOCK)
+    INNER JOIN dbo.MIG_OV_ID_MAP m
+        ON m.ENERGY_LREF = inv.LREF
+       AND m.OV_KIND = 'TAH_INV'
+       AND m.ABYS_AGREEMENT_ID = @AGR_ID
+    WHERE ISNULL(inv.[TYPE], 0) = 101;
+
+    SET @d = @@ROWCOUNT;
+    IF @d = 0 BREAK;
+    SET @n += @d;
+    RAISERROR('TAH_INV -%d (tot %I64d)', 0, 1, @d, @n) WITH NOWAIT;
+END
+RAISERROR('--- 3/4 TAH_INV done tot=%I64d ---', 0, 1, @n) WITH NOWAIT;
+
+UPDATE dbo.MIG_OV_ID_MAP
+SET ENERGY_LREF = NULL
+WHERE ABYS_AGREEMENT_ID = @AGR_ID
+  AND OV_KIND IN ('PAY_PT', 'TAH_INV', 'CANCEL_PAY', 'CANCEL_REV')
+  AND ENERGY_LREF IS NOT NULL;
+SET @d = @@ROWCOUNT;
+RAISERROR('--- 4a MIG_OV_ID_MAP cleared=%d ---', 0, 1, @d) WITH NOWAIT;
+
+IF OBJECT_ID('izgazMGR.dbo.LS_OV_ID_MAP', 'U') IS NOT NULL
+BEGIN
+    UPDATE izgazMGR.dbo.LS_OV_ID_MAP
+    SET ENERGY_LREF = NULL
+    WHERE ABYS_AGREEMENT_ID = @AGR_ID
+      AND OV_KIND IN ('PAY_PT', 'TAH_INV', 'CANCEL_PAY', 'CANCEL_REV')
+      AND ENERGY_LREF IS NOT NULL;
+    SET @d = @@ROWCOUNT;
+    RAISERROR('--- 4b LS_OV_ID_MAP cleared=%d ---', 0, 1, @d) WITH NOWAIT;
+END
+
+SELECT
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP
+     WHERE ABYS_AGREEMENT_ID=@AGR_ID AND OV_KIND='PAY_PT' AND ENERGY_LREF IS NOT NULL) AS PAY_FILL_LEFT,
+    (SELECT COUNT(*) FROM dbo.MIG_OV_ID_MAP
+     WHERE ABYS_AGREEMENT_ID=@AGR_ID AND OV_KIND='TAH_INV' AND ENERGY_LREF IS NOT NULL) AS TAH_FILL_LEFT,
+    (SELECT COUNT(*) FROM dbo.LS_005_01_PAYTRANS WITH (NOLOCK)
+     WHERE ABYS_AGREEMENT_ID=@AGR_ID AND ISNULL(IOCODE,0)<>0) AS PT_IO1_LEFT,
+    (SELECT COUNT(*) FROM dbo.LS_005_01_INVOICE WITH (NOLOCK)
+     WHERE ABYS_AGREEMENT_ID=@AGR_ID AND [TYPE]=101) AS TAH101_LEFT;
+
+RAISERROR('========== 09c DONE — LEFT=0 beklenir; sonra 20_597 + SP_MIG_597_ALL @AGR=%I64d ==========', 0, 1, @AGR_ID) WITH NOWAIT;
+GO

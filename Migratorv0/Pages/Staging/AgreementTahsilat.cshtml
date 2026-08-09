@@ -1,0 +1,258 @@
+@page "/staging/tahsilat"
+@model MigrationWeb.Pages.Staging.AgreementTahsilatModel
+@{
+    ViewData["Title"] = "Tahsilat Zinciri Wizard";
+}
+
+<link href="~/css/staging.css" rel="stylesheet" />
+
+<div class="staging-viewer tahsilat-wizard">
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <h2 class="mb-1">Tahsilat Zinciri — Tek Sözleşme</h2>
+            <p class="text-muted mb-0 small">
+                <strong>SMS</strong> (Oracle) → <strong>izgazMGR</strong> → <strong>ENERGY</strong> (MSSQL).
+                Hızlı yol: alttaki <strong>ENERGY’ye aktar</strong> butonu tek seferde dump + ENERGY zincirini APPLY eder.
+                Adım adım doğrulama için soldaki listeyi kullanın. Loglar: <code>App_Data/tahsilat-pilot/{runId}/</code>.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/staging/agreement" class="btn btn-outline-secondary btn-sm">Staging viewer</a>
+            <a href="/" class="btn btn-outline-secondary btn-sm">Panele dön</a>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <strong>1) Bağlantı tanımı</strong>
+                <span class="small text-muted ms-2">Önce burayı doldur → Test → Kaydet → sonra adımları çalıştır</span>
+            </div>
+            <a href="/stage-ops/connections" class="btn btn-outline-secondary btn-sm" target="_blank">Stage Ops bağlantılar</a>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-secondary small py-2 mb-3">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <strong class="text-info">SMS</strong> = kaynak <em>Oracle</em> (ABYS / CS_* okuma).<br/>
+                        Host + Port + Service Name + User/Şifre.
+                    </div>
+                    <div class="col-md-6">
+                        <strong class="text-warning">ENERGY</strong> = hedef <em>MSSQL</em> (<code>energy</code> DB, yazma/okuma).<br/>
+                        Server + Database + SQL kullanıcısı/şifre.
+                        <span class="text-danger">“Login failed for user 'pcms'”</span> → kullanıcı/şifre veya sunucu yanlış.
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-2 align-items-end mb-3">
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="agrId">Sözleşme ID (AGREEMENT_ID)</label>
+                    <input type="number" class="form-control" id="agrId" value="197168" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="energyNr">Tablo NR <span class="text-muted">(LS_<b>005</b>_01)</span></label>
+                    <input type="text" class="form-control" id="energyNr" value="005" title="energy.dbo.LS_005_01_INVOICE" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="energyPeriod">Dönem <span class="text-muted">(LS_005_<b>01</b>)</span></label>
+                    <input type="text" class="form-control" id="energyPeriod" value="01" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="migrationSchema">CTAS / mig şema</label>
+                    <input type="text" class="form-control" id="migrationSchema" placeholder="boş = Oracle kullanıcı" value="" title="Yoksa bağlı Oracle kullanıcı (örn. SMS) kullanılır. MIGRATION user yoksa boş bırakın." />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="smsSchema">SMS şema</label>
+                    <input type="text" class="form-control" id="smsSchema" placeholder="boş = Oracle kullanıcı" value="" title="CS_* tabloları. Boş = ekrandaki Oracle kullanıcı." />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-0" for="runId">RunId</label>
+                    <input type="text" class="form-control" id="runId" readonly placeholder="otomatik" />
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <div class="border border-info rounded p-3 h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong class="text-info">A · SMS (Oracle)</strong>
+                            <button type="button" class="btn btn-outline-info btn-sm" id="btnTestSms">SMS Test</button>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-7">
+                                <label class="form-label small mb-0" for="oracleHost">Host / IP</label>
+                                <input class="form-control form-control-sm" id="oracleHost" placeholder="örn. 10.32.67.200" value="10.32.67.200" />
+                            </div>
+                            <div class="col-5">
+                                <label class="form-label small mb-0" for="oraclePort">Port</label>
+                                <input class="form-control form-control-sm" id="oraclePort" placeholder="1521" value="1521" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-0" for="oracleService">Service Name</label>
+                                <input class="form-control form-control-sm" id="oracleService" placeholder="örn. test / ORCL" value="test" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-0" for="oracleUser">Kullanıcı</label>
+                                <input class="form-control form-control-sm" id="oracleUser" placeholder="örn. SMS" value="SMS" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small mb-0" for="oraclePassword">Şifre</label>
+                                <input type="password" class="form-control form-control-sm" id="oraclePassword" placeholder="Oracle şifre" value="sms" autocomplete="new-password" />
+                            </div>
+                        </div>
+                        <div class="small text-muted mt-2" id="oraclePreview">—</div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="border border-warning rounded p-3 h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong class="text-warning">B · ENERGY (MSSQL)</strong>
+                            <button type="button" class="btn btn-outline-warning btn-sm" id="btnTestEnergy">ENERGY Test</button>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-8">
+                                <label class="form-label small mb-0" for="mssqlServer">Server / Instance</label>
+                                <input class="form-control form-control-sm" id="mssqlServer" placeholder="örn. 10.x.x.x veya HOST\INSTANCE" />
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small mb-0" for="mssqlDatabase">Database</label>
+                                <input class="form-control form-control-sm" id="mssqlDatabase" placeholder="energy" value="energy" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-0" for="mssqlAuth">Kimlik doğrulama</label>
+                                <select class="form-select form-select-sm" id="mssqlAuth">
+                                    <option value="Sql" selected>SQL Auth (User/Password)</option>
+                                    <option value="Windows">Windows Auth</option>
+                                </select>
+                            </div>
+                            <div class="col-6" id="mssqlUserWrap">
+                                <label class="form-label small mb-0" for="mssqlUser">SQL kullanıcı</label>
+                                <input class="form-control form-control-sm" id="mssqlUser" placeholder="energy login (pcms değilse düzelt)" />
+                            </div>
+                            <div class="col-12" id="mssqlPasswordWrap">
+                                <label class="form-label small mb-0" for="mssqlPassword">SQL şifre</label>
+                                <input type="password" class="form-control form-control-sm" id="mssqlPassword" placeholder="MSSQL şifre" autocomplete="new-password" />
+                            </div>
+                            <div class="col-12 form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="mssqlTrust" checked />
+                                <label class="form-check-label small" for="mssqlTrust">TrustServerCertificate (dev/test)</label>
+                            </div>
+                        </div>
+                        <div class="small text-muted mt-2" id="mssqlPreview">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
+                <button type="button" class="btn btn-warning btn-sm" id="btnTestBoth">İkisini test et</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnSaveConn">Bağlantıyı kaydet (tarayıcı)</button>
+                <span class="small text-muted">Şifre log’a yazılmaz. Kaydet = localStorage.</span>
+            </div>
+            <div id="connStatus" class="small mt-2 text-muted"></div>
+        </div>
+    </div>
+
+    <div class="card mb-3 border-warning" id="oneClickCard">
+        <div class="card-body py-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <strong class="d-block">Tek tık — ENERGY’ye kadar</strong>
+                    <span class="small text-muted">
+                        SMS/CTAS → <code>izgazMGR</code> dump → ENERGY temizle →
+                        INVOICE / INVLINES / PAYTRANS / tahsilat zinciri (APPLY).
+                    </span>
+                    <div class="small mt-1" id="oneClickStatus">Bağlantıyı test ettikten sonra çalıştırın.</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" id="oneClickClean" checked />
+                        <label class="form-check-label small" for="oneClickClean">Önce AGR temizle</label>
+                    </div>
+                    <button type="button" class="btn btn-warning btn-lg px-4" id="btnOneClickEnergy">
+                        ENERGY’ye aktar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Adımlar</strong>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnRunAll">Sırayla çalıştır (DRY)</button>
+                </div>
+                <div class="list-group list-group-flush" id="stepList"></div>
+            </div>
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Gap listesi (Faz2 girdisi)</strong>
+                    <button type="button" class="btn btn-outline-light btn-sm" id="btnExportGaps">JSON kopyala</button>
+                </div>
+                <ul class="list-group list-group-flush small" id="gapList">
+                    <li class="list-group-item text-muted">Henüz yok</li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div class="card mb-3" id="stepDetailCard">
+                <div class="card-header py-2">
+                    <strong id="stepTitle">Adım seçin</strong>
+                    <div class="small text-muted" id="stepExplain"></div>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="btnRunStep" disabled>Adımı çalıştır</button>
+                        <div class="form-check form-check-inline ms-2">
+                            <input class="form-check-input" type="checkbox" id="dryRun" checked />
+                            <label class="form-check-label small" for="dryRun">DRY_RUN (APPLY için kaldır)</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="includeEps" checked />
+                            <label class="form-check-label small" for="includeEps">CLOSE_EPS dahil</label>
+                        </div>
+                        <div class="form-check form-check-inline" style="display:none">
+                            <input class="form-check-input" type="checkbox" id="cleanBeforePilot" checked />
+                            <label class="form-check-label small" for="cleanBeforePilot">Pilot: önce AGR zincirini temizle (569)</label>
+                        </div>
+                    </div>
+                    <div id="stepStatus" class="small mb-2 text-muted">—</div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <div class="small text-info mb-1">SMS satırları</div>
+                            <div class="table-responsive staging-scroll">
+                                <table class="table table-sm table-dark staging-grid mb-0" id="tblSms"><thead></thead><tbody></tbody></table>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="small text-warning mb-1">ENERGY satırları</div>
+                            <div class="table-responsive staging-scroll">
+                                <table class="table table-sm table-dark staging-grid mb-0" id="tblEnergy"><thead></thead><tbody></tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2 small"><pre class="mb-0 p-2 bg-dark border rounded" id="summaryBox">{}</pre></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <strong>Çift taraflı log</strong>
+                    <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-outline-info btn-sm" id="btnPilotLogs" title="App_Data/tahsilat-pilot">Pilot loglar</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnClearLog">Temizle</button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <pre class="tahsilat-log mb-0" id="logPanel"></pre>
+                </div>
+                <div class="card-footer py-1 small text-muted" id="pilotLogHint">Doğrulama logları adım sonrası App_Data/tahsilat-pilot/{runId}/ altına yazılır.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/staging/agreement-tahsilat.js?v=20260730-oneclick2"></script>
+}

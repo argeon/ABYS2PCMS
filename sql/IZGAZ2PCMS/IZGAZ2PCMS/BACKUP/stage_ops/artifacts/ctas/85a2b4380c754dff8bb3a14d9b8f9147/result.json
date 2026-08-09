@@ -1,0 +1,22 @@
+{
+  "runId": 4,
+  "runUuid": "85a2b4380c754dff8bb3a14d9b8f9147",
+  "surface": "ctas",
+  "items": [
+    {
+      "Id": 4,
+      "RunId": 4,
+      "StageId": "CTAS_LS_AGREEMENT",
+      "StageName": "LS_AGREEMENT",
+      "Status": "Failed",
+      "ExitCode": 1,
+      "ElapsedMs": 1716,
+      "Rows": null,
+      "RowsPerSec": null,
+      "LogPath": "C:\\Users\\HW5536\\source\\repos\\Migratorv0\\sql\\IZGAZ2PCMS\\IZGAZ2PCMS\\stage_ops\\logs\\ctas\\85a2b4380c754dff8bb3a14d9b8f9147\\CTAS_LS_AGREEMENT.log",
+      "DetailJson": "{\u0022log\u0022:\u0022Oracle connect string missing (set STAGEOPS_ORACLE_CONN)\\r\\nAt C:\\\\Users\\\\HW5536\\\\source\\\\repos\\\\Migratorv0\\\\sql\\\\IZGAZ2PCMS\\\\IZGAZ2PCMS\\\\stage_ops\\\\Invoke-StageOne.ps1:44 char:27\\r\\n\\u002B ... ot $conn) { throw \\u0022Oracle connect string missing (set STAGEOPS_ORACLE ...\\r\\n\\u002B                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\r\\n    \\u002B CategoryInfo          : OperationStopped: (Oracle connect ...PS_ORACLE_CONN):String) [], RuntimeException\\r\\n    \\u002B FullyQualifiedErrorId : Oracle connect string missing (set STAGEOPS_ORACLE_CONN)\\r\\n \\r\\n\\r\\n\u0022,\u0022stdout\u0022:\u0022{\\u0022stageId\\u0022:\\u0022CTAS_LS_AGREEMENT\\u0022,\\u0022name\\u0022:\\u0022LS_AGREEMENT\\u0022,\\u0022status\\u0022:\\u0022Failed\\u0022,\\u0022exitCode\\u0022:1,\\u0022elapsedMs\\u0022:283,\\u0022logPath\\u0022:\\u0022C:\\\\\\\\Users\\\\\\\\HW5536\\\\\\\\source\\\\\\\\repos\\\\\\\\Migratorv0\\\\\\\\sql\\\\\\\\IZGAZ2PCMS\\\\\\\\IZGAZ2PCMS\\\\\\\\stage_ops\\\\\\\\logs\\\\\\\\ctas\\\\\\\\85a2b4380c754dff8bb3a14d9b8f9147\\\\\\\\CTAS_LS_AGREEMENT.log\\u0022}\\r\\n\u0022,\u0022stderr\u0022:\u0022\u0022}",
+      "StartedAt": "2026-07-20T04:46:00.0225851+03:00",
+      "CompletedAt": "2026-07-20T04:46:01.7744244+03:00"
+    }
+  ]
+}

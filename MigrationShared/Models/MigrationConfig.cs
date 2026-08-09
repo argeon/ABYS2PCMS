@@ -7,7 +7,23 @@ public class MigrationConfig
     public string OracleConnectionString { get; set; } = string.Empty;
     public string MssqlConnectionString { get; set; } = string.Empty;
     public string OracleSchema { get; set; } = string.Empty;
-    public int DegreeOfParallelism { get; set; } = 8;
+    /// <summary>
+    /// Per-table Oracle extract slice count (PK/ROWID partition plan). Wizard: "Oracle paralel".
+    /// Does <b>not</b> control how many tables run at once — see <see cref="TableParallelism"/>.
+    /// </summary>
+    public int DegreeOfParallelism { get; set; } = 56;
+
+    /// <summary>
+    /// Explicit alias for <see cref="DegreeOfParallelism"/> (Oracle slice count). When &gt; 0, preferred at bind time.
+    /// </summary>
+    public int OracleParallel { get; set; } = 56;
+
+    /// <summary>
+    /// How many transfer packages (tables) migrate concurrently. Independent of Oracle parallel / SQL MAXDOP.
+    /// Default 2 — keeps Oracle pool healthy when partition workers are high.
+    /// </summary>
+    public int TableParallelism { get; set; } = 2;
+
     public int BatchSize { get; set; } = 50000;
     public int FetchSizeMB { get; set; } = 50;
 
@@ -47,13 +63,18 @@ public class MigrationConfig
     /// When true, all partitions of a single table are loaded in parallel instead of sequentially.
     /// Useful for large tables where I/O or network is the bottleneck.
     /// </summary>
-    public bool ParallelPartitionLoad { get; set; } = false;
+    public bool ParallelPartitionLoad { get; set; } = true;
 
     /// <summary>
-    /// Max concurrent partition workers per table when <see cref="ParallelPartitionLoad"/> is true.
-    /// Defaults to <see cref="DegreeOfParallelism"/> when 0.
+    /// Max concurrent partition writers per table when <see cref="ParallelPartitionLoad"/> is true
+    /// (wizard: "SQL MAXDOP"). Independent of <see cref="OracleParallel"/> / <see cref="TableParallelism"/>.
     /// </summary>
-    public int PartitionDegreeOfParallelism { get; set; } = 4;
+    public int PartitionDegreeOfParallelism { get; set; } = 48;
+
+    /// <summary>
+    /// Wizard/UI alias for <see cref="PartitionDegreeOfParallelism"/>. When &gt; 0, preferred at bind time.
+    /// </summary>
+    public int SqlMaxDop { get; set; } = 48;
 
     /// <summary>
     /// When true, each partition is loaded into a dedicated staging table on MSSQL instead
@@ -96,6 +117,13 @@ public class MigrationConfig
     /// Oracle kaynak EPSG when ALL_SDO_GEOM_METADATA is missing. Key: TABLE.COLUMN (case-insensitive).
     /// </summary>
     public Dictionary<string, int> SpatialSridOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// When Oracle metadata/geometry SRID is missing (NULL/0) and no per-column override exists,
+    /// use this EPSG as source for DotSpatial reproject. İzgaz LOCATION columns are typically Web Mercator (3857).
+    /// Set null/0 to disable the fallback (conversion will fail clearly instead of using EPSG:0).
+    /// </summary>
+    public int? DefaultSpatialSourceSridWhenMissing { get; set; } = 3857;
 
     /// <summary>
     /// MSSQL hedef EPSG (varsayılan 4326 WGS84 geography). Key: TABLE.COLUMN.

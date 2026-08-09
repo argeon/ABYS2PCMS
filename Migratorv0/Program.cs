@@ -1,8 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MigrationEngine.Checkpoint;
+using MigrationShared;
 using MigrationWeb.Hubs;
 using MigrationWeb.Services;
+
+SqlServerTypesBootstrap.Ensure();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +33,12 @@ var sqlRoot = Path.GetFullPath(
 var stageOpsUploadRoot = Path.Combine(stageOpsRoot, "scripts");
 Directory.CreateDirectory(stageOpsUploadRoot);
 
+var mssqlCopyCheckpointDbPath = Path.GetFullPath(
+    Path.Combine(builder.Environment.ContentRootPath, "..", "MssqlCopyEngine", "mssql_copy_checkpoint.db"));
+var mssqlCopyCheckpointDir = Path.GetDirectoryName(mssqlCopyCheckpointDbPath);
+if (!string.IsNullOrEmpty(mssqlCopyCheckpointDir))
+    Directory.CreateDirectory(mssqlCopyCheckpointDir);
+
 builder.Services.AddRazorPages();
 builder.Services.AddControllers()
     .ConfigureApplicationPartManager(apm =>
@@ -54,6 +63,10 @@ builder.Services.AddSignalR().AddJsonProtocol(o =>
 builder.Services.AddSingleton<DashboardDataService>();
 builder.Services.Configure<CheckpointOptions>(builder.Configuration.GetSection("Checkpoint"));
 builder.Services.PostConfigure<CheckpointOptions>(o => o.SqlitePath = checkpointDbPath);
+builder.Services.Configure<MigrationWeb.Controllers.MssqlCopyCheckpointOptions>(o =>
+{
+    o.SqlitePath = mssqlCopyCheckpointDbPath;
+});
 builder.Services.AddSingleton<HistoryDataService>(_ => new HistoryDataService(checkpointDbPath));
 builder.Services.AddSingleton<MigrationWeb.Services.TransferStudio.TransferStudioDataService>(
     _ => new MigrationWeb.Services.TransferStudio.TransferStudioDataService(transferStudioDbPath));
@@ -62,6 +75,12 @@ builder.Services.AddSingleton<MigrationWeb.Services.TransferStudio.OracleCheckpo
 builder.Services.AddSingleton<MigrationWeb.Services.TransferStudio.PipelineValidationOrchestrator>();
 builder.Services.AddSingleton<MigrationWeb.Services.Migrate.CsReadingPlanMigrationService>();
 builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementStagingService>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementSmsReadService>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementEnergyWriteService>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementPilotMgrLoadService>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementPilotLogStore>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementTahsilatRunLog>();
+builder.Services.AddSingleton<MigrationWeb.Services.Staging.AgreementTahsilatOrchestrator>();
 builder.Services.AddSingleton(new MigrationWeb.Services.StageOps.StageOpsPaths
 {
     SqlitePath = stageOpsDbPath,
@@ -79,6 +98,10 @@ builder.Services.AddHostedService<CheckpointPollingService>();
 var app = builder.Build();
 
 using (new CheckpointRepository(checkpointDbPath))
+{
+}
+
+using (new CheckpointRepository(mssqlCopyCheckpointDbPath))
 {
 }
 

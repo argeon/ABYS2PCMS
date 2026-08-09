@@ -46,6 +46,9 @@
                         <button type="button" class="btn btn-success btn-sm" id="startEngineBtn" onclick="startMigrationEngine()" title="Gerekirse build, ardından motoru başlat">
                             <i class="fas fa-play"></i><span class="d-none d-md-inline ms-1">Başlat</span>
                         </button>
+                        <button type="button" class="btn btn-warning btn-sm d-none" id="retryEngineBtn" onclick="retryMigrationEngine()" title="Sadece hatalı tabloları --retry-failed ile yeniden dene">
+                            <i class="fas fa-redo"></i><span class="d-none d-md-inline ms-1">Yeniden dene</span>
+                        </button>
                         <button type="button" class="btn btn-outline-danger btn-sm d-none" id="stopEngineBtn" onclick="stopMigrationEngine()" title="Motor sürecini durdur">
                             <i class="fas fa-stop"></i><span class="d-none d-md-inline ms-1">Durdur</span>
                         </button>
@@ -73,6 +76,9 @@
                 <button class="btn btn-outline-success btn-sm" onclick="startMigrationEngine()">
                     <i class="fas fa-play me-1"></i> Motoru Başlat
                 </button>
+                <button class="btn btn-outline-warning btn-sm d-none" id="idleRetryEngineBtn" onclick="retryMigrationEngine()">
+                    <i class="fas fa-redo me-1"></i> Yeniden dene
+                </button>
             </div>
         </div>
     </div>
@@ -81,6 +87,36 @@
         <i class="fas fa-check-circle me-2"></i>
         <strong>Migration tamamlandı!</strong> Tüm tablolar başarıyla aktarıldı.
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <div id="migrationFatalBanner" class="alert alert-danger d-none mb-3" role="alert">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div>
+                <i class="fas fa-bug me-2"></i>
+                <strong>Motor durdu / fatal hata</strong>
+                <div class="small mt-1" id="migrationFatalBannerDetail"></div>
+                <a class="small" href="/errors" id="migrationFatalErrorsLink">Hata listesine git →</a>
+            </div>
+            <button type="button" class="btn-close" aria-label="Kapat" onclick="document.getElementById('migrationFatalBanner').classList.add('d-none')"></button>
+        </div>
+    </div>
+
+    <div id="migrationRetryBanner" class="alert alert-warning d-none mb-3" role="status">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong id="migrationRetryBannerTitle">Bekleyen / hatalı tablo var.</strong>
+                <span class="small text-muted ms-1" id="migrationRetryBannerDetail">Tek tablo için satırdaki Devam butonunu kullanın.</span>
+            </div>
+            <div class="d-flex gap-1 flex-wrap">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="resumePendingBtn" onclick="continuePendingTables()" title="Bekleyen tabloları devam ettir">
+                    <i class="fas fa-play me-1"></i>Bekleyenlere devam
+                </button>
+                <button type="button" class="btn btn-warning btn-sm" onclick="retryMigrationEngine()">
+                    <i class="fas fa-redo me-1"></i>Hatalıları dene
+                </button>
+            </div>
+        </div>
     </div>
 
     <div id="dashboardContent" class="d-none">
@@ -238,11 +274,12 @@
                                 <th class="text-end">Kalan</th>
                                 <th style="min-width:180px">İlerleme</th>
                                 <th class="text-end">Paralel</th>
+                                <th class="text-end" style="width:1%">Aksiyon</th>
                             </tr>
                         </thead>
                         <tbody id="tableProgressGrid">
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-4">Tablo ilerleme verisi bekleniyor…</td>
+                                <td colspan="8" class="text-center text-muted py-4">Tablo ilerleme verisi bekleniyor…</td>
                             </tr>
                         </tbody>
                     </table>
@@ -261,42 +298,49 @@
 
         <div class="card mb-4 border-0">
             <div class="card-header border-0 d-flex justify-content-between align-items-start flex-wrap gap-2">
-                <h5 class="mb-0 d-flex align-items-center flex-wrap gap-2">
-                    <span><i class="fas fa-th-list me-1" aria-hidden="true"></i> Partition ilerlemesi</span>
-                    <span class="badge rounded-pill bg-secondary" id="partitionCount">0</span>
-                </h5>
-                <small class="text-muted d-none d-md-block">Aynı migration run · canlı</small>
+                <button type="button" class="btn btn-link text-decoration-none text-body p-0 d-flex align-items-center flex-wrap gap-2"
+                        id="partitionProgressToggle" data-bs-toggle="collapse" data-bs-target="#partitionProgressCollapse"
+                        aria-expanded="false" aria-controls="partitionProgressCollapse">
+                    <i class="fas fa-chevron-right partition-collapse-icon" aria-hidden="true"></i>
+                    <h5 class="mb-0 d-flex align-items-center flex-wrap gap-2">
+                        <span><i class="fas fa-th-list me-1" aria-hidden="true"></i> Partition ilerlemesi</span>
+                        <span class="badge rounded-pill bg-secondary" id="partitionCount">0</span>
+                    </h5>
+                </button>
+                <small class="text-muted d-none d-md-block">Aynı migration run · aç/kapa</small>
             </div>
-            <div class="card-body p-0">
-                <div class="partition-strip">
-                    <div class="strip-title">
-                        <i class="fas fa-project-diagram me-1" aria-hidden="true"></i> Paralel partitionlar
+            <div id="partitionProgressCollapse" class="collapse">
+                <div class="card-body p-0">
+                    <div class="partition-strip">
+                        <div class="strip-title">
+                            <i class="fas fa-project-diagram me-1" aria-hidden="true"></i> Paralel partitionlar
+                        </div>
+                        <div id="partitionParallelSummary" class="small fw-medium text-body mb-2">
+                            Veri bekleniyor…
+                        </div>
+                        <div id="partitionParallelList" class="partition-chip-list small text-body"></div>
                     </div>
-                    <div id="partitionParallelSummary" class="small fw-medium text-body mb-2">
-                        Veri bekleniyor…
+                    <div class="table-responsive partition-scroll">
+                        <table class="table table-sm table-hover mb-0 partition-grid">
+                            <thead>
+                                <tr>
+                                    <th>Tablo</th>
+                                    <th>P.</th>
+                                    <th>Durum</th>
+                                    <th class="text-end">İşlenen</th>
+                                    <th class="text-end">Hedef</th>
+                                    <th style="min-width: 120px">İlerleme</th>
+                                    <th class="text-end">Süre</th>
+                                    <th>Hata</th>
+                                </tr>
+                            </thead>
+                            <tbody id="partitionGrid">
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">Partition checkpoint yok</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div id="partitionParallelList" class="partition-chip-list small text-body"></div>
-                </div>
-                <div class="table-responsive partition-scroll">
-                    <table class="table table-sm table-hover mb-0 partition-grid">
-                        <thead>
-                            <tr>
-                                <th>Tablo</th>
-                                <th>P.</th>
-                                <th>Durum</th>
-                                <th class="text-end">İşlenen</th>
-                                <th class="text-end">Hedef</th>
-                                <th style="min-width: 120px">İlerleme</th>
-                                <th class="text-end">Süre</th>
-                                <th>Hata</th>
-                            </tr>
-                        </thead>
-                        <tbody id="partitionGrid">
-                            <tr>
-                                <td colspan="8" class="text-center text-muted py-4">Partition checkpoint yok</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>

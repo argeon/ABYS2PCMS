@@ -8,11 +8,15 @@ public class TypeMapper
 {
     /// <summary>
     /// Oracle ALL_TAB_COLUMNS.DATA_LENGTH for TIMESTAMP is byte size, not fractional-second precision.
+    /// For NUMBER, DATA_LENGTH is always the internal byte size (typically 22) — never use it as precision
+    /// (that produced DECIMAL(22,0) and truncated kuruş on unconstrained NUMBER columns).
     /// </summary>
     public static int? ResolvePrecisionArgument(string dataType, int? dataPrecision, int? dataLength)
     {
         var t = dataType.ToUpperInvariant();
         if (t.StartsWith("TIMESTAMP"))
+            return dataPrecision;
+        if (t is "NUMBER" or "FLOAT" or "BINARY_FLOAT" or "BINARY_DOUBLE")
             return dataPrecision;
         return dataPrecision ?? dataLength;
     }
@@ -77,13 +81,16 @@ public class TypeMapper
 
     private TypeMapping MapNumber(int? precision, int? scale, string columnName)
     {
-        if (!precision.HasValue || precision == 0)
+        // Unconstrained / float-like Oracle NUMBER (NULL scale, -127, or ODP.NET 127 sentinel).
+        // Must keep fractional scale — DECIMAL(p,0)/BIGINT truncates kuruş (GUARANTY.TOTAL etc.).
+        if (!precision.HasValue || precision == 0
+            || !scale.HasValue || scale < 0 || scale > 20)
         {
-            return new TypeMapping("DECIMAL(38,10)", true, 
-                "NUMBER without precision mapped to DECIMAL(38,10) - review precision requirements");
+            return new TypeMapping("DECIMAL(38,10)", true,
+                "NUMBER unconstrained/float-scale mapped to DECIMAL(38,10) to preserve fractions");
         }
 
-        if (!scale.HasValue || scale == 0)
+        if (scale == 0)
         {
             return precision.Value switch
             {
@@ -113,10 +120,13 @@ public class TypeMapper
         return new TypeMapping($"DECIMAL({precision},{scale})", false, null);
     }
 
+    // Oracle VARCHAR2 → MSSQL VARCHAR (CP1254 / energy bare-join).
+    // Dump must land as VARCHAR so ENERGY 00b ALIGN is CHECK-only, not ALTER.
+    // True Unicode (NVARCHAR2) stays NVARCHAR via MapNVarchar.
     private TypeMapping MapVarchar(int? length)
     {
         var effectiveLength = Math.Min(length ?? 4000, 4000);
-        return new TypeMapping($"NVARCHAR({effectiveLength})", false, null);
+        return new TypeMapping($"VARCHAR({effectiveLength})", false, null);
     }
 
     private TypeMapping MapNVarchar(int? length)
@@ -127,7 +137,7 @@ public class TypeMapper
 
     private TypeMapping MapChar(int? length)
     {
-        return new TypeMapping($"NCHAR({length ?? 1})", true, 
+        return new TypeMapping($"CHAR({length ?? 1})", true,
             "CHAR type preserves trailing spaces - verify application compatibility");
     }
 
@@ -214,10 +224,12 @@ public class TypeMapper
 
     private static Type MapNumberClr(int? precision, int? scale)
     {
-        if (!precision.HasValue || precision == 0)
+        // Keep CLR decimal whenever SQL mapping keeps fractional scale (unconstrained / float-scale).
+        if (!precision.HasValue || precision == 0
+            || !scale.HasValue || scale < 0 || scale > 20)
             return typeof(decimal);
 
-        if (!scale.HasValue || scale == 0)
+        if (scale == 0)
         {
             return precision.Value switch
             {

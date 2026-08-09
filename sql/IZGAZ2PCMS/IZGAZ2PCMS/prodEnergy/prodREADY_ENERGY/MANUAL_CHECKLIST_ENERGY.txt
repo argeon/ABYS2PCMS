@@ -1,0 +1,58 @@
+================================================================================
+ENERGY prodREADY_ENERGY — MANUEL CHECKLIST
+Klasor: prodEnergy/prodREADY_ENERGY/
+On kosul: Oracle prodREADY + dump izgazMGR tamam
+Operator: _______________   Tarih: ____/____/2026
+================================================================================
+Log: sqlcmd -o logs/03_energy/Exx_YYYYMMDD_HHMM.log
+Ozet: EXEC energy.dbo.SP_MIG_LOG_STATUS
+ALL zorunlu — tek INSERT yasak. GATE_FAIL → DUR.
+================================================================================
+
+Setup
+Adim                              Dosya / Komut                      Saat    Sonuc
+-----------------------------------------------------------------------------------------------
+[ ] E-LOG  log setup              00_log_setup.sql                   ______  OK/FAIL
+[ ] E-MAP  map tables             00_map_tables.sql                  ______  OK/FAIL
+[ ] E-MAP2 MAP kopyala            izgazMGR→energy.MIG_OV_ID_MAP      ______  rows=____
+[ ] E-ABYS ABYS_* bridge ★        00_abys_columns.sql                ______  OK/FAIL
+[ ] E-LIN  LINENR SMALLINT ★      01_linenr_smallint.sql             ______  OK/FAIL
+[ ] E-AGR  AGR dolu               SELECT COUNT AGR ABYS_ID           ______  cnt=____
+
+MAIN (energy migrate — mevcut 571/581/575 paketleri)
+[ ] E571  INVOICE                 SP_MIGRATE_LS005_INVOICE           ______  OK/FAIL
+[ ] E581  INVLINES                SP_MIGRATE_LS005_INVLINES          ______  OK/FAIL
+[ ] E575  DEBT PT  veya O14 bulk  (ikisini birden YAPMA)             ______  OK/FAIL
+      secim: [ ] 575   [ ] O14 bulk
+
+590 EKSILTEN
+[ ] E590-D Deploy                 10+11+12+19_590_ALL.sql            ______  OK
+[ ] E590   EXEC SP_MIG_590_ALL @AGR_ID=NULL,@CLEAN=1,@DEBUG=1        ______  OK/FAIL
+      [ ] Messages: E590 START
+      [ ] Messages: E590G GATE_PASS
+      [ ] MIG_STEP_LOG: E590 STATUS=OK
+      log dosya: _________________________________
+
+597 TAHSILAT
+[ ] E597-D Deploy                 20+21+22+29_597_ALL.sql            ______  OK
+[ ] E597   EXEC SP_MIG_597_ALL @AGR_ID=NULL,@CLEAN=1,@DEBUG=1        ______  OK/FAIL
+      [ ] Messages: E597 START
+      [ ] Messages: E597G GATE_PASS
+      [ ] MIG_STEP_LOG: E597 STATUS=OK
+      log dosya: _________________________________
+
+Kapanis
+[ ] EXEC SP_MIG_LOG_STATUS — FAIL/GATE_FAIL yok
+[ ] @CHECK_QUERIES_ENERGY.sql — spot kontroller OK
+[ ] Spot AGR ______ : RETURN_TARGET dolu
+[ ] Spot PAY CROSSREF dolu
+[ ] Spot IADE_IL ABYS_ID=LREF
+
+Opsiyonel
+[ ] E60 post kontrol
+[ ] E70 rapor
+[ ] E91 AFL FRK
+[ ] E80 613 taksit (@RUN_FULL=0)
+
+Imza: _______________   Bitis: ______
+================================================================================

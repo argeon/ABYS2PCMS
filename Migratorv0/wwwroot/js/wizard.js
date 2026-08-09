@@ -54,11 +54,23 @@ function setupEventListeners() {
     document.getElementById('tableSearch')?.addEventListener('input', filterTables);
     document.getElementById('checkTableStatusBtn')?.addEventListener('click', () => void checkSelectedTableTransferStatus());
 
-    // Paralel partition toggle → worker sayısı alanını göster/gizle
+    // Paralel partition toggle → bilgi satırını göster/gizle
     document.getElementById('parallelPartitionLoad')?.addEventListener('change', function () {
         const group = document.getElementById('partitionParallelismGroup');
         if (group) group.style.display = this.checked ? '' : 'none';
     });
+
+    const syncParallelHidden = () => {
+        const ora = safePositiveInt(document.getElementById('oracleParallel')?.value, 56);
+        const sql = safePositiveInt(document.getElementById('sqlMaxDop')?.value, 48);
+        setInputValue('parallelism', ora);
+        setInputValue('partitionDegreeOfParallelism', sql);
+    };
+    ['oracleParallel', 'sqlMaxDop', 'tableParallelism'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', syncParallelHidden);
+        document.getElementById(id)?.addEventListener('input', syncParallelHidden);
+    });
+    syncParallelHidden();
 
     // Staging merge toggle → info kutusunu göster/gizle
     document.getElementById('useStagingMerge')?.addEventListener('change', function () {
@@ -454,11 +466,38 @@ function updateSummary() {
     const mssqlServer = document.getElementById('mssqlServer').value;
     const mssqlDb = document.getElementById('mssqlDatabase').value;
     document.getElementById('summaryMssql').textContent = `${mssqlServer} / Database: ${mssqlDb}`;
-    
-    document.getElementById('summaryTables').textContent = `${wizardData.tables.length} tables selected: ${wizardData.tables.join(', ')}`;
+
+    const oracleParallel = safePositiveInt(document.getElementById('oracleParallel')?.value, 56);
+    const sqlMaxDop = safePositiveInt(document.getElementById('sqlMaxDop')?.value, 48);
+    const tableParallelism = safePositiveInt(document.getElementById('tableParallelism')?.value, 2);
+    setInputValue('parallelism', oracleParallel);
+    setInputValue('partitionDegreeOfParallelism', sqlMaxDop);
+
+    const sumOra = document.getElementById('summaryOracleParallel');
+    const sumSql = document.getElementById('summarySqlMaxDop');
+    const sumPkg = document.getElementById('summaryTableParallelism');
+    const sumCount = document.getElementById('summaryTableCount');
+    if (sumOra) sumOra.textContent = String(oracleParallel);
+    if (sumSql) sumSql.textContent = String(sqlMaxDop);
+    if (sumPkg) sumPkg.textContent = String(tableParallelism);
+    if (sumCount) sumCount.textContent = String(wizardData.tables.length);
+
+    const tablesEl = document.getElementById('summaryTables');
+    if (tablesEl) {
+        if (!wizardData.tables.length) {
+            tablesEl.textContent = 'Tablo seçilmedi';
+        } else {
+            const items = wizardData.tables.map(t => `<li><code>${escapeHtmlWizard(t)}</code></li>`).join('');
+            tablesEl.innerHTML = `<ul>${items}</ul>`;
+        }
+    }
     
     wizardData.config = {
-        degreeOfParallelism: parseInt(document.getElementById('parallelism').value),
+        degreeOfParallelism: oracleParallel,
+        oracleParallel,
+        partitionDegreeOfParallelism: sqlMaxDop,
+        sqlMaxDop,
+        tableParallelism,
         batchSize: parseInt(document.getElementById('batchSize').value),
         fetchSizeMB: parseInt(document.getElementById('fetchSize').value)
     };
@@ -703,7 +742,11 @@ async function startMigration() {
 
     updateSummary();
 
-    const parallelism = safePositiveInt(document.getElementById('parallelism')?.value, 8);
+    const parallelism = safePositiveInt(document.getElementById('oracleParallel')?.value, 56);
+    const sqlMaxDop = safePositiveInt(document.getElementById('sqlMaxDop')?.value, 48);
+    const tableParallelism = safePositiveInt(document.getElementById('tableParallelism')?.value, 2);
+    setInputValue('parallelism', parallelism);
+    setInputValue('partitionDegreeOfParallelism', sqlMaxDop);
     const batchSize = safePositiveInt(document.getElementById('batchSize')?.value, 50000);
     const fetchSize = safePositiveInt(document.getElementById('fetchSize')?.value, 50);
     const validationMaxRows = safeNonNegativeInt(document.getElementById('validationMaxRows')?.value, 5000000);
@@ -714,6 +757,8 @@ async function startMigration() {
         oracleSchema: wizardData.oracle.schema,
         tables: wizardData.tables,
         degreeOfParallelism: parallelism,
+        oracleParallel: parallelism,
+        tableParallelism,
         batchSize,
         fetchSizeMB: fetchSize,
         // Schema migration options
@@ -729,8 +774,9 @@ async function startMigration() {
         validationFailFast: document.getElementById('validationFailFast')?.checked || false,
         enableCompositePkHash: document.getElementById('enableCompositePkHash')?.checked || false,
         autoStart: document.getElementById('autoStartDotnetRun')?.checked || false,
-        parallelPartitionLoad: document.getElementById('parallelPartitionLoad')?.checked || false,
-        partitionDegreeOfParallelism: safePositiveInt(document.getElementById('partitionDegreeOfParallelism')?.value, 4),
+        parallelPartitionLoad: document.getElementById('parallelPartitionLoad')?.checked !== false,
+        partitionDegreeOfParallelism: sqlMaxDop,
+        sqlMaxDop,
         useStagingMerge: document.getElementById('useStagingMerge')?.checked || false,
         usePartitionSwitch: document.getElementById('usePartitionSwitch')?.checked || false,
         useBulkLoggedRecovery: document.getElementById('useBulkLoggedRecovery')?.checked !== false,
@@ -964,7 +1010,14 @@ function setCheckboxValue(id, value) {
 
 function applyMigrationConfigOptions(cfg) {
     if (!cfg) return;
-    if (cfg.degreeOfParallelism) setInputValue('parallelism', cfg.degreeOfParallelism);
+    const oracleParallel = cfg.oracleParallel || cfg.degreeOfParallelism || 56;
+    const sqlMaxDop = cfg.sqlMaxDop || cfg.partitionDegreeOfParallelism || 48;
+    const tableParallelism = cfg.tableParallelism || 2;
+    setInputValue('oracleParallel', oracleParallel);
+    setInputValue('sqlMaxDop', sqlMaxDop);
+    setInputValue('tableParallelism', tableParallelism);
+    setInputValue('parallelism', oracleParallel);
+    setInputValue('partitionDegreeOfParallelism', sqlMaxDop);
     if (cfg.batchSize) setInputValue('batchSize', cfg.batchSize);
     if (cfg.fetchSizeMB) setInputValue('fetchSize', cfg.fetchSizeMB);
     if (cfg.validationMaxRowsForExtendedGates != null) {
@@ -979,18 +1032,13 @@ function applyMigrationConfigOptions(cfg) {
     setCheckboxValue('validatePerTableAfterLoad', cfg.validatePerTableAfterLoad);
     setCheckboxValue('validationFailFast', cfg.validationFailFast);
     setCheckboxValue('enableCompositePkHash', cfg.enableCompositePkHash);
-    setCheckboxValue('parallelPartitionLoad', cfg.parallelPartitionLoad);
+    setCheckboxValue('parallelPartitionLoad', cfg.parallelPartitionLoad !== false);
     setCheckboxValue('useStagingMerge', cfg.useStagingMerge);
     setCheckboxValue('usePartitionSwitch', cfg.usePartitionSwitch);
     setCheckboxValue('useBulkLoggedRecovery', cfg.useBulkLoggedRecovery !== false);
     if (cfg.validationMode) setInputValue('validationMode', cfg.validationMode);
-    if (cfg.parallelPartitionLoad) {
-        const group = document.getElementById('partitionParallelismGroup');
-        if (group) group.style.display = '';
-        if (cfg.partitionDegreeOfParallelism) {
-            setInputValue('partitionDegreeOfParallelism', cfg.partitionDegreeOfParallelism);
-        }
-    }
+    const group = document.getElementById('partitionParallelismGroup');
+    if (group) group.style.display = (cfg.parallelPartitionLoad !== false) ? '' : 'none';
     const stagingInfo = document.getElementById('stagingMergeInfo');
     if (stagingInfo) stagingInfo.style.display = cfg.useStagingMerge ? '' : 'none';
     const switchInfo = document.getElementById('partitionSwitchInfo');
@@ -1298,7 +1346,9 @@ async function saveMigrationProfile() {
 
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Kaydediliyor…'; }
 
-    const parallelism = safePositiveInt(document.getElementById('parallelism')?.value, 8);
+    const parallelism = safePositiveInt(document.getElementById('oracleParallel')?.value, 56);
+    const sqlMaxDop = safePositiveInt(document.getElementById('sqlMaxDop')?.value, 48);
+    const tableParallelism = safePositiveInt(document.getElementById('tableParallelism')?.value, 2);
     const batchSize = safePositiveInt(document.getElementById('batchSize')?.value, 50000);
     const fetchSize = safePositiveInt(document.getElementById('fetchSize')?.value, 50);
     const validationMaxRows = safeNonNegativeInt(document.getElementById('validationMaxRows')?.value, 5000000);
@@ -1325,6 +1375,8 @@ async function saveMigrationProfile() {
         mssqlTrustCert: document.getElementById('mssqlTrustCert')?.checked ?? true,
         tables: wizardData.tables,
         degreeOfParallelism: parallelism,
+        oracleParallel: parallelism,
+        tableParallelism,
         batchSize,
         fetchSizeMB: fetchSize,
         migrateIndexes: document.getElementById('migrateIndexes')?.checked || false,
@@ -1338,8 +1390,9 @@ async function saveMigrationProfile() {
         validatePerTableAfterLoad: document.getElementById('validatePerTableAfterLoad')?.checked || false,
         validationFailFast: document.getElementById('validationFailFast')?.checked || false,
         enableCompositePkHash: document.getElementById('enableCompositePkHash')?.checked || false,
-        parallelPartitionLoad: document.getElementById('parallelPartitionLoad')?.checked || false,
-        partitionDegreeOfParallelism: safePositiveInt(document.getElementById('partitionDegreeOfParallelism')?.value, 4),
+        parallelPartitionLoad: document.getElementById('parallelPartitionLoad')?.checked !== false,
+        partitionDegreeOfParallelism: sqlMaxDop,
+        sqlMaxDop,
         useStagingMerge: document.getElementById('useStagingMerge')?.checked || false,
         usePartitionSwitch: document.getElementById('usePartitionSwitch')?.checked || false,
         useBulkLoggedRecovery: document.getElementById('useBulkLoggedRecovery')?.checked !== false

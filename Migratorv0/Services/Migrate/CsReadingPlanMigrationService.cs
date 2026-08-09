@@ -207,7 +207,7 @@ public class CsReadingPlanMigrationService
                 config.KeepSpatialWktStagingColumns,
                 config.ExtraColumns
             },
-            Checkpoint = new { SqlitePath = CheckpointDbPath },
+            Checkpoint = new { SqlitePath = "migration_checkpoint.db" },
             Serilog = new
             {
                 MinimumLevel = new { Default = "Information" },

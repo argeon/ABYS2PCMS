@@ -503,20 +503,46 @@ BEGIN
             RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
         END
 
-        UPDATE inv
-        SET inv.CLOSED = CAST(1 AS BIT)
-        FROM energy.dbo.LS_005_01_INVOICE inv
-        INNER JOIN izgazMGR.dbo.LS_OV_DEBT_PAID_UPD u WITH (NOLOCK)
-            ON inv.LREF = CAST(TRY_CAST(u.MAIN_LREF AS BIGINT) AS INT)
-        WHERE (@AGR_ID IS NULL OR TRY_CAST(u.ABYS_AGREEMENT_ID AS BIGINT) = @AGR_ID)
-          AND TRY_CAST(u.CLOSED AS INT) = 1
-          AND ISNULL(inv.CLOSED, 0) = 0
-        OPTION (RECOMPILE, MAXDOP 24);
+        /* CLOSED + LASTPAIDDATE (LPD kismi odemede de; kolon yoksa sadece CLOSED) */
+        IF COL_LENGTH('izgazMGR.dbo.LS_OV_DEBT_PAID_UPD', 'LASTPAIDDATE') IS NOT NULL
+        BEGIN
+            UPDATE inv
+            SET inv.CLOSED = CASE
+                    WHEN TRY_CAST(u.CLOSED AS INT) = 1 THEN CAST(1 AS BIT)
+                    ELSE inv.CLOSED
+                END,
+                inv.LASTPAIDDATE = CASE
+                    WHEN u.LASTPAIDDATE IS NOT NULL
+                    THEN energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(u.LASTPAIDDATE AS DATETIME2))
+                    ELSE inv.LASTPAIDDATE
+                END
+            FROM energy.dbo.LS_005_01_INVOICE inv
+            INNER JOIN izgazMGR.dbo.LS_OV_DEBT_PAID_UPD u WITH (NOLOCK)
+                ON inv.LREF = CAST(TRY_CAST(u.MAIN_LREF AS BIGINT) AS INT)
+            WHERE (@AGR_ID IS NULL OR TRY_CAST(u.ABYS_AGREEMENT_ID AS BIGINT) = @AGR_ID)
+              AND (
+                    (TRY_CAST(u.CLOSED AS INT) = 1 AND ISNULL(inv.CLOSED, 0) = 0)
+                 OR (u.LASTPAIDDATE IS NOT NULL AND inv.LASTPAIDDATE IS NULL)
+              )
+            OPTION (RECOMPILE, MAXDOP 24);
+        END
+        ELSE
+        BEGIN
+            UPDATE inv
+            SET inv.CLOSED = CAST(1 AS BIT)
+            FROM energy.dbo.LS_005_01_INVOICE inv
+            INNER JOIN izgazMGR.dbo.LS_OV_DEBT_PAID_UPD u WITH (NOLOCK)
+                ON inv.LREF = CAST(TRY_CAST(u.MAIN_LREF AS BIGINT) AS INT)
+            WHERE (@AGR_ID IS NULL OR TRY_CAST(u.ABYS_AGREEMENT_ID AS BIGINT) = @AGR_ID)
+              AND TRY_CAST(u.CLOSED AS INT) = 1
+              AND ISNULL(inv.CLOSED, 0) = 0
+            OPTION (RECOMPILE, MAXDOP 24);
+        END
 
         SET @N = @@ROWCOUNT;
         IF @DEBUG = 1
         BEGIN
-            SET @Msg = N'MAIN CLOSED upd=' + CAST(@N AS VARCHAR(20));
+            SET @Msg = N'MAIN CLOSED/LPD upd=' + CAST(@N AS VARCHAR(20));
             RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
         END
     END

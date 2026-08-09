@@ -1,0 +1,128 @@
+/* ============================================================
+   prodREADY_ENERGY / 61_GUVENCE_IADE_WIRE
+   INSERT sonrasi: IL ABYS_ID + PAYTRANS (LREF=INVOICEREF=INV ENERGY_LREF)
+   ============================================================ */
+USE energy;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_GUVENCE_IADE_WIRE
+    @AGR_ID BIGINT = NULL,
+    @DEBUG  BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @Msg NVARCHAR(400), @N INT;
+
+    /* 1) INVLINES.ABYS_ID = LREF */
+    UPDATE il
+    SET il.ABYS_ID = il.LREF
+    FROM dbo.LS_005_01_INVLINES il
+    INNER JOIN dbo.MIG_OV_ID_MAP m
+        ON m.ENERGY_LREF = il.LREF AND m.OV_KIND = N'GUV_IADE_IL'
+    WHERE il.ABYS_ID IS NULL
+      AND (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND m.ABYS_AGREEMENT_ID IS NULL AND m.ABYS_ACCOUNT_ID IS NOT NULL)
+           OR (@AGR_ID > 0 AND m.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+    OPTION (RECOMPILE, MAXDOP 24);
+    SET @N = @@ROWCOUNT;
+    IF @DEBUG = 1
+    BEGIN
+        SET @Msg = N'E610 WIRE IL ABYS_ID=' + CAST(@N AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    /* 2) PAYTRANS — IDENTITY_INSERT; LREF = INV LREF (590 IADE modeli) */
+    IF OBJECT_ID('izgazMGR.dbo.LS_OV_GUVENCE_IADE_PAYTRANS', 'U') IS NULL
+    BEGIN
+        IF @DEBUG = 1
+            RAISERROR('E610 WIRE | WARN | LS_OV_GUVENCE_IADE_PAYTRANS yok', 0, 1) WITH NOWAIT;
+        RETURN;
+    END
+
+    BEGIN TRY
+        SET IDENTITY_INSERT dbo.LS_005_01_PAYTRANS ON;
+
+        INSERT INTO dbo.LS_005_01_PAYTRANS (
+            LREF, INVOICEREF, [TYPE], IOCODE, PAYTYPE, TRANSTYPE, LINETYPE, INST_NR,
+            DATE_, PAYABLETOTAL, PAID, CANCELED, CLIENTREF, CLIENT_TYPE,
+            ABYS_ID, ABYS_ACCOUNT_ID, ABYS_AGREEMENT_ID, ABYS_INVOICE_LREF
+        )
+        SELECT
+            mi.ENERGY_LREF,
+            mi.ENERGY_LREF,
+            CAST(110 AS TINYINT),
+            CAST(s.IOCODE AS TINYINT),
+            CAST(s.PAYTYPE AS INT),
+            CAST(s.TRANSTYPE AS INT),
+            CAST(s.LINETYPE AS INT),
+            CAST(ISNULL(s.INST_NR, 0) AS INT),
+            energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(s.DATE_ AS DATETIME2)),
+            CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.PAYABLETOTAL)),
+            0,
+            CAST(0 AS BIT),
+            CAST(s.CLIENTREF AS INT),
+            CAST(91 AS TINYINT),
+            s.ABYS_ID,
+            s.ABYS_ACCOUNT_ID,
+            s.ABYS_AGREEMENT_ID,
+            mi.ENERGY_LREF
+        FROM izgazMGR.dbo.LS_OV_GUVENCE_IADE_PAYTRANS s WITH (NOLOCK)
+        INNER JOIN dbo.MIG_OV_ID_MAP mi
+            ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+           AND mi.OV_KIND = N'GUV_IADE_INV'
+        WHERE mi.ENERGY_LREF IS NOT NULL
+          AND (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL AND s.ABYS_ACCOUNT_ID IS NOT NULL)
+           OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+          AND NOT EXISTS (
+                SELECT 1 FROM dbo.LS_005_01_PAYTRANS t WHERE t.LREF = mi.ENERGY_LREF
+              )
+        OPTION (RECOMPILE, MAXDOP 24);
+
+        SET @N = @@ROWCOUNT;
+        SET IDENTITY_INSERT dbo.LS_005_01_PAYTRANS OFF;
+    END TRY
+    BEGIN CATCH
+        BEGIN TRY SET IDENTITY_INSERT dbo.LS_005_01_PAYTRANS OFF; END TRY BEGIN CATCH END CATCH;
+        THROW;
+    END CATCH
+
+    UPDATE mp
+    SET mp.ENERGY_LREF = mi.ENERGY_LREF
+    FROM dbo.MIG_OV_ID_MAP mp
+    INNER JOIN izgazMGR.dbo.LS_OV_GUVENCE_IADE_PAYTRANS s
+        ON s.SRC_KEY = mp.SRC_KEY
+    INNER JOIN dbo.MIG_OV_ID_MAP mi
+        ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+       AND mi.OV_KIND = N'GUV_IADE_INV'
+    WHERE mp.OV_KIND = N'GUV_IADE_PT'
+      AND mp.ENERGY_LREF IS NULL
+      AND mi.ENERGY_LREF IS NOT NULL
+    OPTION (RECOMPILE, MAXDOP 24);
+
+    UPDATE mp
+    SET mp.ENERGY_LREF = mi.ENERGY_LREF
+    FROM izgazMGR.dbo.LS_OV_ID_MAP mp
+    INNER JOIN izgazMGR.dbo.LS_OV_GUVENCE_IADE_PAYTRANS s
+        ON s.SRC_KEY = mp.SRC_KEY
+    INNER JOIN dbo.MIG_OV_ID_MAP mi
+        ON mi.SRC_KEY = s.INVOICE_SRC_KEY
+       AND mi.OV_KIND = N'GUV_IADE_INV'
+    WHERE mp.OV_KIND = N'GUV_IADE_PT'
+      AND mp.ENERGY_LREF IS NULL
+      AND mi.ENERGY_LREF IS NOT NULL
+    OPTION (RECOMPILE, MAXDOP 24);
+
+    IF @DEBUG = 1
+    BEGIN
+        SET @Msg = N'E610 WIRE PT insert=' + CAST(@N AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+END
+GO

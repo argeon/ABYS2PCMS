@@ -1,0 +1,259 @@
+================================================================================
+TAHSILAT ZINCIRI — DOSYA + EXEC (yeni aktarim FULL, tek tek)
+Sunucu: C:\www\MIGRATION_SCR_20260708\ENERGY
+SSMS: USE energy; Results to Text | FAIL / GATE_FAIL → DUR
+================================================================================
+
+KURAL
+- DEPLOY dosyasi = bir kez sqlcmd/SSMS ile calistir (SP olusur).
+- EXEC = asagidaki komutlari tek tek calistir.
+- *_ALL EXEC ETME (027 / 037) — tekil INSERT/WIRE/GATE kullan.
+- 98_TEST / 91* residual / hotfix 03-04 → YOK.
+
+================================================================================
+A) ONKOSUL (dosya — EXEC yok)
+================================================================================
+ 1. 003_00B_ALIGN_MGR_VARCHAR.SQL          -- CHECK only
+    FAIL → 003A_00B_ALIGN_MGR_VARCHAR__APPLY.SQL  (bitmeden devam YOK)
+ 2. 004_00C_ENRICH_MGR_KISMI_LINEEXP.SQL
+ 3. 008_00D_PERF_BANK_INDEXES.SQL
+ 4. MGR IX (yoksa CREATE): IX_MIG_LSINV_ACTION, IX_MIG_LSINV_AGR_ACTION,
+     IX_MIG_LSINVLINES_LREF, IX_MIG_LSIL_INVREF
+     (064_SSMS_CUTOVER_RUN.SQL §1)
+
+================================================================================
+B) DEPLOY — bir kez (dosya calistir; asagida EXEC yok)
+================================================================================
+ 5.  001_00_LOG_SETUP.SQL
+ 6.  002_00_MAP_TABLES.SQL
+ 7.  005_00_ABYS_COLUMNS.SQL
+ 8.  006_01_LINENR_SMALLINT.SQL
+ 9.  044_10_SETUP_AND_MAP.SQL
+       → kontrol: SELECT COUNT_BIG(*) FROM dbo.MIG_OV_ID_MAP;  -- >0 olmali
+
+10. 015_570_INVOICE__SETUP.SQL
+11. 016_571_INVOICE__MIGRATE.SQL
+12. 185_572_INVOICE__POST.SQL
+13. 017_580_INVLINES__SETUP.SQL
+14. 018_581_INVLINES__MIGRATE.SQL
+15. 190_582_INVLINES__POST.SQL
+16. 019_574_INVOICE_DEBT_PAYTRANS__SETUP.SQL
+17. 020_575_INVOICE_DEBT_PAYTRANS__MIGRATE.SQL
+18. 187_576_INVOICE_DEBT_PAYTRANS__POST.SQL
+19. 024_10_590_INSERT.SQL
+20. 025_11_590_WIRE.SQL
+21. 026_12_590_GATE.SQL
+22. 036_28_DEPLOY_597.SQL
+23. 011_00E_TAKSIT_STAGING.SQL
+24. 010_00E_MGR_CS_INSTALLMENT_INDEXES.SQL
+25. 009_00E_ENERGY_INSTALLMENT_PLAN_INDEXES.SQL
+26. 205_611_INSTALLMENT_PLAN__MIGRATE.SQL
+27. 206_611B_INSTALLMENT_PLAN_WIRE_INVOICE__FIX.SQL
+    (+ 613 SP deploy — 50e oncesi)
+
+================================================================================
+C) CLEAN — EXEC
+================================================================================
+USE energy;
+GO
+
+EXEC dbo.SP_MIG_DEBT_PAYTRANS_HARD_RESET
+    @DELETE_BATCH = 50000, @AGR_ID = NULL, @DEBUG = 1;
+
+IF OBJECT_ID('dbo.SP_MIG_DEBT_PAYTRANS_PREPARE_LOAD', 'P') IS NOT NULL
+    EXEC dbo.SP_MIG_DEBT_PAYTRANS_PREPARE_LOAD @DEBUG = 1;
+
+-- ABYS kalinti PT (batch)
+DECLARE @d INT, @n BIGINT = 0;
+WHILE 1 = 1
+BEGIN
+    DELETE TOP (50000) FROM dbo.LS_005_01_PAYTRANS WHERE ABYS_ID IS NOT NULL;
+    SET @d = @@ROWCOUNT;
+    IF @d = 0 BREAK;
+    SET @n += @d;
+    RAISERROR('PAYTRANS ABYS del +%d (toplam %I64d)', 0, 1, @d, @n) WITH NOWAIT;
+END
+GO
+
+EXEC dbo.SP_MIG_INVLINES_HARD_RESET @DELETE_BATCH = 100000, @DEBUG = 1;
+EXEC dbo.SP_MIG_INVOICE_HARD_RESET  @DELETE_BATCH = 50000,  @DEBUG = 1;
+GO
+
+UPDATE dbo.MIG_OV_ID_MAP SET ENERGY_LREF = NULL WHERE ENERGY_LREF IS NOT NULL;
+UPDATE izgazMGR.dbo.LS_OV_ID_MAP SET ENERGY_LREF = NULL WHERE ENERGY_LREF IS NOT NULL;
+GO
+
+================================================================================
+D) ANA YUK — EXEC
+================================================================================
+
+-- D1 INVOICE
+EXEC dbo.SP_MIGRATE_LS005_INVOICE
+    @BATCH_SIZE = 50000,
+    @RESUME     = 1,
+    @HARD_RESET = 0,
+    @AGR_ID     = NULL,
+    @DEBUG      = 1;
+GO
+
+-- D2 POST IX INVOICE  (deploy: 185_572_…)
+EXEC dbo.SP_MIG_INVOICE_POST_INDEXES @DEBUG = 1;
+GO
+
+-- D3 INVLINES
+EXEC dbo.SP_MIGRATE_LS005_INVLINES
+    @BATCH_SIZE      = 100000,
+    @RESUME          = 1,
+    @HARD_RESET      = 0,
+    @RANGE_MODE      = 'KEYSET',
+    @SKIP_PERF_CHECK = 0,
+    @DEBUG           = 1;
+GO
+
+-- D4 POST IX INVLINES  (deploy: 190_582_…)
+EXEC dbo.SP_MIG_INVLINES_POST_INDEXES @DEBUG = 1;
+GO
+
+-- D5 DEBT PAYTRANS
+EXEC dbo.SP_MIGRATE_LS005_DEBT_PAYTRANS
+    @BATCH_SIZE = 50000,
+    @RESUME     = 1,
+    @HARD_RESET = 0,
+    @AGR_ID     = NULL,
+    @DEBUG      = 1;
+GO
+
+-- D6 POST IX PAYTRANS  (deploy: 187_576_…)
+EXEC dbo.SP_MIG_DEBT_PAYTRANS_POST_INDEXES @DEBUG = 1;
+GO
+
+================================================================================
+E) OVERLAY 590 — EXEC (tekil; 027_19_590_ALL EXEC ETME)
+================================================================================
+
+EXEC dbo.SP_MIG_590_INSERT
+    @AGR_ID    = NULL,
+    @CLEAN     = 1,
+    @DEBUG     = 1,
+    @BatchSize = 20000;
+GO
+
+EXEC dbo.SP_MIG_590_WIRE
+    @AGR_ID = NULL,
+    @DEBUG  = 1;
+GO
+
+EXEC dbo.SP_MIG_590_GATE
+    @AGR_ID = NULL;
+GO
+-- PASS yoksa DUR
+
+================================================================================
+F) OVERLAY 597 — dosya + EXEC (tekil; 037_29_597_ALL EXEC ETME)
+================================================================================
+
+-- F0 dosya:
+--   034_20B_PAYTRANS_NCIX_DISABLE.SQL
+
+EXEC dbo.SP_MIG_597_INSERT
+    @AGR_ID    = NULL,
+    @CLEAN     = 1,
+    @DEBUG     = 1,
+    @BatchSize = 250000;
+GO
+
+EXEC dbo.SP_MIG_597_WIRE
+    @AGR_ID    = NULL,
+    @DEBUG     = 1,
+    @BatchSize = 200000;
+GO
+
+EXEC dbo.SP_MIG_597_GATE
+    @AGR_ID = NULL;
+GO
+-- GATE_PASS yoksa DUR
+
+-- F4 dosya:
+--   035_20C_PAYTRANS_NCIX_REBUILD.SQL
+
+================================================================================
+G) TAKSIT — EXEC + dosya
+================================================================================
+
+EXEC dbo.SP_MIGRATE_LS005_INSTALLMENT_PLAN
+    @BATCH_SIZE = 50000,
+    @RESUME     = 1,
+    @HARD_RESET = 0,
+    @AGR_ID     = NULL,
+    @DEBUG      = 1;
+GO
+
+EXEC dbo.SP_MIG_INSTALLMENT_PLAN_WIRE_INVOICE
+    @AGR_ID = NULL,
+    @DEBUG  = 1;
+GO
+
+-- G3 dosya (UX + 613 loop):
+--   055_50E_TAKSIT_EXECS.SQL
+
+================================================================================
+H) POST — dosya (ustte @DRY_RUN=0 yap)
+================================================================================
+-- H1  051_35_BANKREF_RESOLVE_ABYS.SQL
+--       DECLARE @DRY_RUN BIT = 0;
+--       DECLARE @AGR_ID  BIGINT = NULL;
+
+-- H2  053_40_INSTALLMENT_PLAN_PAY_APPLY.SQL
+--       DECLARE @DRY_RUN BIT = 0;
+--       DECLARE @AGR_ID  BIGINT = NULL;
+
+-- H3  066_92_STG_INV_PAY_CLOSE_APPLY.SQL
+--       DECLARE @DRY_RUN BIT = 0;
+
+================================================================================
+I) VALIDATE
+================================================================================
+-- I1 dosya: 071_95_TTK_INV_AFL_FATURA_RAPOR.SQL
+-- I2 dosya: 075_99_AFL_VS_EN_KALAN_FRK.SQL
+-- I3 dosya: 073_97_AGR_FRK_ALL.SQL (SP deploy) sonra:
+
+EXEC dbo.SP_AGR_FRK_ALL @Agr = NULL, @OnlyDiff = 1;
+GO
+
+EXEC dbo.SP_MIG_LOG_STATUS;
+GO
+
+-- Spot: AGR 3 / 412056 / INV 66081785
+
+================================================================================
+OPSIYONEL E610 (O60 dump varsa) — 597 PASS sonrasi, 35 oncesi
+================================================================================
+-- Deploy: 039_60 / 040_61 / 041_62 / 042_69
+EXEC dbo.SP_MIG_GUVENCE_IADE_INSERT @AGR_ID = NULL, @CLEAN = 1, @DEBUG = 1;  -- param SP ile ayni
+EXEC dbo.SP_MIG_GUVENCE_IADE_WIRE   @AGR_ID = NULL, @DEBUG = 1;
+EXEC dbo.SP_MIG_GUVENCE_IADE_GATE   @AGR_ID = NULL;
+-- O60 yoksa ATLA
+
+================================================================================
+YASAK
+================================================================================
+027_19_590_ALL.SQL / 037_29_597_ALL.SQL  → cutover EXEC olarak KULLANMA
+088_98_TEST_* / 089_98_TEST_*
+056_91* / 057_91B / 058_91C / 076_91D / 032_22B  → residual
+100_02 / 101_03 / 102_04 hotfix
+
+================================================================================
+Hizli akis (sadece EXEC adi)
+================================================================================
+CLEAN HARD_RESET
+→ 571 → 572_POST
+→ 581 → 582_POST
+→ 575 → 576_POST
+→ 590_INSERT → 590_WIRE → 590_GATE
+→ 20b_DISABLE
+→ 597_INSERT → 597_WIRE → 597_GATE
+→ 20c_REBUILD
+→ 611 → 611b → 50e (613)
+→ 35 → 40 → 92
+→ 95 → 99 → 97 → LOG_STATUS
+================================================================================

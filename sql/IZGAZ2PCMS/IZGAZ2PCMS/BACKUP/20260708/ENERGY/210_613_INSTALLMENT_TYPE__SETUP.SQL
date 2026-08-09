@@ -1,0 +1,152 @@
+/* ============================================================
+   SCRIPT_ID : INSTALLMENT_TYPE_SETUP
+   SCRIPT_NO : 613
+   FILE      : 613_INSTALLMENT_TYPE__setup.sql
+   VERSION   : 1
+   ============================================================ */
+-- ============================================================
+-- izgazMGR.dbo.CS_INSTALLMENT_TYPE_PRM (+ _LNG LANG_ID=1)
+--   → energy.dbo.LS_INSTALLMENT_TYPE
+--
+-- Native PCMS satirlarina dokunulmaz (ABYS_ID IS NULL).
+-- LREF = IDENTITY; kopru ABYS_ID = kaynak ID.
+-- ============================================================
+USE energy;
+GO
+
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+
+IF OBJECT_ID('energy.dbo.LS_INSTALLMENT_TYPE', 'U') IS NULL
+BEGIN
+    RAISERROR('energy.dbo.LS_INSTALLMENT_TYPE bulunamadi.', 16, 1);
+    RETURN;
+END
+GO
+
+DECLARE @Sql NVARCHAR(MAX) = N'';
+DECLARE @Cols TABLE (COL_NAME SYSNAME NOT NULL, COL_DEF NVARCHAR(300) NOT NULL);
+
+INSERT INTO @Cols (COL_NAME, COL_DEF) VALUES
+ (N'ABYS_ID',                          N'BIGINT NULL'),
+ (N'ABYS_CORPORATION_ID',              N'INT NULL'),
+ (N'ABYS_TYPE',                        N'SMALLINT NULL'),
+ (N'ABYS_COMMISSION_DELAY_TYPE_ID',    N'INT NULL'),
+ (N'ABYS_START_COMMISSION_DELAY_TYPE_ID', N'INT NULL'),
+ (N'ABYS_AFTER_COMMISSION_DELAY_TYPE_ID', N'INT NULL'),
+ (N'ABYS_IS_APPLICATION_REQUIRED',     N'SMALLINT NULL'),
+ (N'ABYS_LAST_EXPIRY_DATE',            N'DATETIME NULL'),
+ (N'ABYS_FIRST_INSTALLMENT_EXPIRY_DATE', N'DATETIME NULL'),
+ (N'ABYS_IS_PENALTY_ACCRUE_ONE_FACTOR', N'SMALLINT NULL'),
+ (N'ABYS_REPORT_TYPE',                 N'SMALLINT NULL'),
+ (N'ABYS_INSTALLMENT_VIOLATED_PROCESS', N'SMALLINT NULL'),
+ (N'ABYS_INSTALLMENT_VIOLATED_CONTROL', N'SMALLINT NULL'),
+ (N'ABYS_VIOLATED_CANCEL_CAUSE_ID',    N'BIGINT NULL'),
+ (N'ABYS_DO_OVERDUE_DEBTS_ACCRUE',     N'SMALLINT NULL'),
+ (N'ABYS_VIOLATED_IS_LEGAL_INFO_TYPE', N'SMALLINT NULL'),
+ (N'ABYS_DO_ONLINE_INSTALLMENT',       N'SMALLINT NULL'),
+ (N'ABYS_DO_SELECTED_ALL_ACCRUE_ONLINE', N'SMALLINT NULL'),
+ (N'ABYS_CANCELLATION_INSTALLMENT_COUNT', N'SMALLINT NULL'),
+ (N'ABYS_LATE_CHARGE_INCOME_ID',       N'BIGINT NULL'),
+ (N'ABYS_ACCRUED_INCOME_ID',           N'BIGINT NULL'),
+ (N'ABYS_IS_LATE_CHARGE_FIXED',        N'BIGINT NULL'),
+ (N'ABYS_VERSION',                     N'BIGINT NULL'),
+ (N'ABYS_CREATED_USER_ID',             N'BIGINT NULL'),
+ (N'ABYS_UPDATED_USER_ID',             N'BIGINT NULL');
+
+SELECT @Sql = @Sql + N'
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(''energy.dbo.LS_INSTALLMENT_TYPE'')
+      AND name = ''' + COL_NAME + N'''
+)
+    ALTER TABLE energy.dbo.LS_INSTALLMENT_TYPE ADD ' + COL_NAME + N' ' + COL_DEF + N';'
+FROM @Cols;
+
+IF LEN(@Sql) > 0
+    EXEC sp_executesql @Sql;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID('energy.dbo.LS_INSTALLMENT_TYPE')
+      AND name = 'UX_LS_INSTALLMENT_TYPE_ABYS_ID'
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UX_LS_INSTALLMENT_TYPE_ABYS_ID
+        ON energy.dbo.LS_INSTALLMENT_TYPE (ABYS_ID)
+        WHERE ABYS_ID IS NOT NULL;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_SOURCE
+    @RaiseOnMissing BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF OBJECT_ID('izgazMGR.dbo.CS_INSTALLMENT_TYPE_PRM', 'U') IS NULL
+    BEGIN
+        IF @RaiseOnMissing = 1
+            RAISERROR('izgazMGR.dbo.CS_INSTALLMENT_TYPE_PRM bulunamadi.', 16, 1);
+        RETURN 1;
+    END
+
+    IF OBJECT_ID('izgazMGR.dbo.CS_INSTALLMENT_TYPE_PRM_LNG', 'U') IS NULL
+    BEGIN
+        IF @RaiseOnMissing = 1
+            RAISERROR('izgazMGR.dbo.CS_INSTALLMENT_TYPE_PRM_LNG bulunamadi.', 16, 1);
+        RETURN 1;
+    END
+
+    IF @RaiseOnMissing = 0
+        SELECT N'CS_INSTALLMENT_TYPE_PRM kaynak OK' AS VALIDATION_MESSAGE;
+
+    RETURN 0;
+END
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_TARGET
+    @RaiseOnMissing BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF OBJECT_ID('energy.dbo.LS_INSTALLMENT_TYPE', 'U') IS NULL
+    BEGIN
+        IF @RaiseOnMissing = 1
+            RAISERROR('energy.dbo.LS_INSTALLMENT_TYPE bulunamadi.', 16, 1);
+        RETURN 1;
+    END
+
+    IF COL_LENGTH('energy.dbo.LS_INSTALLMENT_TYPE', 'ABYS_ID') IS NULL
+    BEGIN
+        IF @RaiseOnMissing = 1
+            RAISERROR('LS_INSTALLMENT_TYPE.ABYS_ID eksik. Once 613 setup calistirin.', 16, 1);
+        RETURN 1;
+    END
+
+    IF @RaiseOnMissing = 0
+        SELECT N'LS_INSTALLMENT_TYPE hedef OK' AS VALIDATION_MESSAGE;
+
+    RETURN 0;
+END
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_ALL
+    @RaiseOnMissing BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Rc INT = 0;
+    EXEC @Rc = dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_SOURCE @RaiseOnMissing = @RaiseOnMissing;
+    IF @Rc <> 0 RETURN @Rc;
+    EXEC @Rc = dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_TARGET @RaiseOnMissing = @RaiseOnMissing;
+    RETURN @Rc;
+END
+GO
+
+EXEC dbo.SP_MIG_INSTALLMENT_TYPE_VALIDATE_ALL @RaiseOnMissing = 0;
+GO
+
+PRINT '613_INSTALLMENT_TYPE__setup OK';
+GO

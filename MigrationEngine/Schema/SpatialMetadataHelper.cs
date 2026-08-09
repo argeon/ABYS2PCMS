@@ -11,10 +11,13 @@ public static class SpatialMetadataHelper
             column.IsSpatial = true;
             var key = $"{table.TableName}.{column.ColumnName}";
 
-            if ((!column.Srid.HasValue || column.Srid == 0)
-                && config.SpatialSridOverrides.TryGetValue(key, out var sourceOverride))
+            if (!column.Srid.HasValue || column.Srid == 0)
             {
-                column.Srid = sourceOverride;
+                if (config.SpatialSridOverrides.TryGetValue(key, out var sourceOverride) && sourceOverride > 0)
+                    column.Srid = sourceOverride;
+                else if (config.DefaultSpatialSourceSridWhenMissing.HasValue
+                         && config.DefaultSpatialSourceSridWhenMissing.Value > 0)
+                    column.Srid = config.DefaultSpatialSourceSridWhenMissing.Value;
             }
 
             column.SpatialTargetSrid = config.SpatialTargetSridOverrides.TryGetValue(key, out var targetOverride)
@@ -34,12 +37,20 @@ public static class SpatialMetadataHelper
     {
         var key = $"{table.TableName}.{column.ColumnName}";
         if ((!column.Srid.HasValue || column.Srid == 0)
-            && config.SpatialSridOverrides.TryGetValue(key, out var overrideSrid))
+            && config.SpatialSridOverrides.TryGetValue(key, out var overrideSrid)
+            && overrideSrid > 0)
         {
             return overrideSrid;
         }
 
-        return column.Srid ?? 0;
+        if (column.Srid.HasValue && column.Srid.Value > 0)
+            return column.Srid.Value;
+
+        if (config.DefaultSpatialSourceSridWhenMissing.HasValue
+            && config.DefaultSpatialSourceSridWhenMissing.Value > 0)
+            return config.DefaultSpatialSourceSridWhenMissing.Value;
+
+        return 0;
     }
 
     /// <summary>WKT staging EPSG — after Oracle reconstruct+transform, WKT is already at target CRS.</summary>

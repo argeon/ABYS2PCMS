@@ -1,0 +1,44 @@
+-- =============================================================================
+-- oracleCTAS3007 / O0b-PILOT — MIG_PARAM ornek sozlesmeler
+-- FULL yerine: @@00_mig_param_pilot.sql  (@@00_mig_param_full.sql DEGIL)
+-- Sonra: @@00_run_pilot_overlay.sql  veya @@00_run_all.sql
+-- Overlay tablolar PILOT-SCOPE olur (DROP+CREATE) — prod dump icin kullanma.
+-- =============================================================================
+
+WHENEVER SQLERROR EXIT FAILURE
+SET SERVEROUTPUT ON SIZE UNLIMITED
+
+BEGIN
+  MIGRATION.P_MIG_CTAS_LOG('O0b', 'mig_param_pilot', 'START', NULL, 'seed AGR filter');
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'DROP TABLE MIGRATION.MIG_PARAM PURGE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+CREATE TABLE MIGRATION.MIG_PARAM (
+  REG_ID NUMBER(12),
+  AGR_ID NUMBER(12)
+);
+
+-- Ornek / retest AGR listesi — ihtiyaca gore ekle/cikar
+INSERT INTO MIGRATION.MIG_PARAM (AGR_ID) VALUES (197168);
+INSERT INTO MIGRATION.MIG_PARAM (AGR_ID) VALUES (5727);
+INSERT INTO MIGRATION.MIG_PARAM (AGR_ID) VALUES (31894);
+INSERT INTO MIGRATION.MIG_PARAM (AGR_ID) VALUES (33290);
+INSERT INTO MIGRATION.MIG_PARAM (AGR_ID) VALUES (39264);
+COMMIT;
+
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM MIGRATION.MIG_PARAM WHERE AGR_ID IS NOT NULL;
+  MIGRATION.P_MIG_CTAS_LOG('O0b', 'mig_param_pilot', 'OK', n, 'AGR filter ON');
+  DBMS_OUTPUT.PUT_LINE('========== O0b MIG_PARAM PILOT OK | agr=' || n || ' ==========');
+EXCEPTION WHEN OTHERS THEN
+  DBMS_OUTPUT.PUT_LINE('========== O0b MIG_PARAM PILOT OK (log skip) ==========');
+END;
+/

@@ -1,0 +1,32 @@
+================================================================================
+DUMP — Oracle MIGRATION → izgazMGR (manuel takip)
+Operator: _______________   Tarih: ____/____/2026
+On kosul: Oracle O27+O41 PASS, @99_log_status FAIL yok
+================================================================================
+
+Tablo / grup                         Oracle cnt    izgazMGR cnt   Esit?   Saat
+-----------------------------------------------------------------------------------------------
+[ ] LS_INVOICE                       ________      ________       E/H     ______
+[ ] LS_INVLINES                      ________      ________       E/H     ______
+[ ] LS_MIG_AGR_LIST                  ________      ________       E/H     ______
+[ ] LS_DEBT_PAYTRANS                 ________      ________       E/H     ______
+[ ] LS_OV_EKS_CLASS                  ________      ________       E/H     ______
+[ ] LS_OV_IADE_INVOICE               ________      ________       E/H     ______
+[ ] LS_OV_IADE_INVLINES              ________      ________       E/H     ______
+[ ] LS_OV_IADE_PAYTRANS              ________      ________       E/H     ______
+[ ] LS_OV_MAIN_UPD                   ________      ________       E/H     ______
+[ ] LS_OV_KISMI_HDR / IL / PT        ________      ________       E/H     ______
+[ ] LS_OV_PAY_PT                     ________      ________       E/H     ______
+[ ] LS_OV_PAY_ALLOC                  ________      ________       E/H     ______
+[ ] LS_OV_CANCEL_PAY / REV           ________      ________       E/H     ______
+[ ] LS_OV_TAH_INVOICE (+ diger TAH)  ________      ________       E/H     ______
+[ ] LS_OV_ID_MAP ★                   ________      ________       E/H     ______
+      [ ] ENERGY_LREF hepsi NULL (dump sonrasi)
+[ ] LS_AFL_OPEN_DEBT                 ________      ________       E/H     ______
+
+Kapanis
+[ ] Kritik COUNT Oracle ≡ izgazMGR
+[ ] Energy'ye gecilebilir
+
+Imza: _______________   Bitis: ______
+================================================================================

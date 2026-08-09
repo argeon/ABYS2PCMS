@@ -1,0 +1,43 @@
+Changed database context to 'energy'.
+2026-08-03 16:12:07.2060347 | 36 BACKFILL NULL-AGR DRY=1
+RESOLVE_KIND n          
+------------ -----------
+UNRESOLVED       1038470
+FIT_CON           186089
+CON_ACTIVE         23544
+FIT_UNIQUE          7911
+CON_UNIQUE           165
+can_resolve=217709 unresolved=1038470
+LREF                 RESOLVED_AGR         RESOLVE_KIND
+-------------------- -------------------- ------------
+                   3              1274968 FIT_CON     
+                  13              1321193 CON_ACTIVE  
+                  18              1275000 CON_ACTIVE  
+                  31              1275017 FIT_CON     
+                  47              1275039 FIT_CON     
+                  62              1275055 FIT_CON     
+                  68              1275057 FIT_CON     
+                  73              1275062 FIT_CON     
+                  95              1275091 FIT_CON     
+                  98              1275116 FIT_CON     
+                 100              1275123 FIT_CON     
+                 106              1275133 FIT_CON     
+                 114              1291028 CON_ACTIVE  
+                 120              1275142 CON_ACTIVE  
+                 126              1275146 FIT_CON     
+                 130              1275148 FIT_CON     
+                 157              1275187 FIT_CON     
+                 165              1546164 CON_ACTIVE  
+                 178              1275215 FIT_CON     
+                 184              1319570 FIT_CON     
+                 185              1319571 FIT_CON     
+                 200              1275156 CON_ACTIVE  
+                 208              1275223 FIT_CON     
+                 212              1275226 FIT_CON     
+                 213              1277478 FIT_CON     
+                 219              1275314 FIT_CON     
+                 234              1275324 CON_ACTIVE  
+                 236              1275325 CON_ACTIVE  
+                 243              1276165 FIT_CON     
+                 247              1074333 CON_ACTIVE  
+========== 36 DRY_RUN — APPLY icin @DRY_RUN=0 ==========

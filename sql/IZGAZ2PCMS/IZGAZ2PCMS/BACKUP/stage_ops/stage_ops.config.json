@@ -1,0 +1,33 @@
+{
+  "sqlRoot": "..",
+  "logsRoot": "logs",
+  "artifactsRoot": "artifacts",
+  "defaultMaxParallelCtas": 2,
+  "oracle": {
+    "sqlplusPath": "sqlplus",
+    "connectStringEnv": "STAGEOPS_ORACLE_CONN",
+    "connectString": "SMS/\"RepSmS26!IzGx\"@//172.16.1.201:1521/izgaz",
+    "odpConnectionString": "User Id=SMS;Password=RepSmS26!IzGx;Data Source=172.16.1.201:1521/izgaz"
+  },
+  "mssql": {
+    "sqlcmdPath": "sqlcmd",
+    "serverEnv": "STAGEOPS_MSSQL_SERVER",
+    "databaseEnv": "STAGEOPS_MSSQL_DATABASE",
+    "userEnv": "STAGEOPS_MSSQL_USER",
+    "passwordEnv": "STAGEOPS_MSSQL_PASSWORD",
+    "server": "172.16.1.195",
+    "database": "energy",
+    "user": "pcms",
+    "password": "12345"
+  },
+  "prod": {
+    "serverEnv": "STAGEOPS_PROD_SERVER",
+    "databaseEnv": "STAGEOPS_PROD_DATABASE",
+    "userEnv": "STAGEOPS_PROD_USER",
+    "passwordEnv": "STAGEOPS_PROD_PASSWORD",
+    "server": "",
+    "database": "",
+    "user": "",
+    "password": ""
+  }
+}

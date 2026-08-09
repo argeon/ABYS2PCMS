@@ -1,0 +1,21 @@
+{
+  "files.exclude": {
+    "**/.vs": true,
+    "_tmp": true,
+    "_artifacts": true,
+    "logs": true,
+    "docs/legacy": true,
+    "sql/IZGAZ2PCMS/BACKUP": true,
+    "sql/IZGAZ2PCMS/IZGAZ2PCMS/BACKUP": true,
+    "**/bin": true,
+    "**/obj": true
+  },
+  "search.exclude": {
+    "_tmp": true,
+    "_artifacts": true,
+    "logs": true,
+    "docs/legacy": true,
+    "sql/IZGAZ2PCMS/BACKUP": true,
+    "sql/IZGAZ2PCMS/IZGAZ2PCMS/BACKUP": true
+  }
+}

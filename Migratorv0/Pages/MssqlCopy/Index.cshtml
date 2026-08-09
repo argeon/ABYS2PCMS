@@ -1,0 +1,156 @@
+@page "/mssql-copy"
+@model MigrationWeb.Pages.MssqlCopy.IndexModel
+@{
+    ViewData["Title"] = "MSSQL Copy Progress";
+}
+
+<div class="container" style="max-width: 1100px; margin-top: 2rem;">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h3 class="mb-0"><i class="fas fa-exchange-alt me-2"></i>MSSQL → MSSQL Copy</h3>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-primary btn-sm" href="/wizard-mssql"><i class="fas fa-magic me-1"></i>Wizard</a>
+            <button class="btn btn-success btn-sm" id="startBtn" onclick="startEngine()"><i class="fas fa-play me-1"></i>Start</button>
+            <button class="btn btn-outline-warning btn-sm" id="resumeBtn" onclick="resumeEngine()"><i class="fas fa-redo me-1"></i>Resume</button>
+            <button class="btn btn-outline-danger btn-sm" id="stopBtn" onclick="stopEngine()"><i class="fas fa-stop me-1"></i>Stop</button>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body d-flex flex-wrap align-items-center gap-3">
+            <span class="text-muted small text-uppercase">Engine</span>
+            <span id="engineStatus" class="badge bg-secondary">…</span>
+            <span id="engineDetail" class="small text-muted"></span>
+            <span class="ms-auto small text-muted" id="lastRefresh"></span>
+        </div>
+    </div>
+
+    <div id="noRunAlert" class="alert alert-info">
+        Aktif bir kopyalama run'ı yok. Wizard ile yapılandırıp motoru başlatın.
+    </div>
+
+    <div id="runPanel" class="d-none">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-2"><strong>Run</strong><div id="runId">-</div></div>
+                    <div class="col-md-2"><strong>Status</strong><div id="runStatus">-</div></div>
+                    <div class="col-md-2"><strong>Schema</strong><div id="runSchema">-</div></div>
+                    <div class="col-md-2"><strong>DOP</strong><div id="runDop">-</div></div>
+                    <div class="col-md-4"><strong>Özet</strong><div id="runSummary" class="small">-</div></div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">Tables</div>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th>Table</th>
+                            <th>Status</th>
+                            <th class="text-end">Rows</th>
+                            <th class="text-end">Total (est.)</th>
+                            <th class="text-end">%</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+async function refreshEngine() {
+    try {
+        const res = await fetch('/api/mssql-copy-engine/status');
+        const data = await res.json();
+        const badge = document.getElementById('engineStatus');
+        const detail = document.getElementById('engineDetail');
+        if (data.status === 'running') {
+            badge.className = 'badge bg-success';
+            badge.textContent = 'RUNNING';
+            detail.textContent = `PID ${data.pid}`;
+        } else {
+            badge.className = 'badge bg-secondary';
+            badge.textContent = 'STOPPED';
+            detail.textContent = data.hasConfiguration ? 'Config ready' : 'No config';
+        }
+    } catch (e) {
+        document.getElementById('engineStatus').textContent = 'ERROR';
+    }
+}
+
+async function refreshProgress() {
+    try {
+        const res = await fetch('/api/wizard-mssql/progress');
+        const data = await res.json();
+        document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+        if (!data.success || !data.hasRun) {
+            document.getElementById('noRunAlert').classList.remove('d-none');
+            document.getElementById('runPanel').classList.add('d-none');
+            return;
+        }
+        document.getElementById('noRunAlert').classList.add('d-none');
+        document.getElementById('runPanel').classList.remove('d-none');
+        document.getElementById('runId').textContent = '#' + data.runId;
+        document.getElementById('runStatus').textContent = data.status;
+        document.getElementById('runSchema').textContent = data.schema || '-';
+        document.getElementById('runDop').textContent = data.degreeOfParallelism || '-';
+        const s = data.summary || {};
+        document.getElementById('runSummary').textContent =
+            `done ${s.done || 0} · running ${s.running || 0} · pending ${s.pending || 0} · failed ${s.failed || 0} / ${s.total || 0}`;
+        const body = document.getElementById('tablesBody');
+        body.innerHTML = '';
+        for (const t of (data.tables || [])) {
+            const st = (t.status || '').toLowerCase();
+            const badge = st === 'done' ? 'success'
+                : st === 'running' ? 'primary'
+                : st === 'failed' ? 'danger'
+                : 'secondary';
+            body.innerHTML += `<tr>
+                <td>${t.tableName}</td>
+                <td><span class="badge bg-${badge}">${t.status || '-'}</span></td>
+                <td class="text-end">${Number(t.rowsProcessed || 0).toLocaleString()}</td>
+                <td class="text-end">${Number(t.totalRows || 0).toLocaleString()}</td>
+                <td class="text-end">${t.percent || 0}%</td>
+                <td class="small text-danger text-truncate" style="max-width:280px" title="${(t.error || '').replace(/"/g, '&quot;')}">${t.error || ''}</td>
+            </tr>`;
+        }
+    } catch { /* ignore */ }
+}
+
+async function startEngine() {
+    await fetch('/api/mssql-copy-engine/build', { method: 'POST' });
+    const res = await fetch('/api/mssql-copy-engine/start', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) alert(data.error || data.message || 'Start failed');
+    await refreshEngine();
+    await refreshProgress();
+}
+
+async function resumeEngine() {
+    await fetch('/api/mssql-copy-engine/build', { method: 'POST' });
+    const res = await fetch('/api/mssql-copy-engine/resume', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) alert(data.error || data.message || 'Resume failed');
+    await refreshEngine();
+    await refreshProgress();
+}
+
+async function stopEngine() {
+    const res = await fetch('/api/mssql-copy-engine/stop', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) alert(data.error || data.message || 'Stop failed');
+    await refreshEngine();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    void refreshEngine();
+    void refreshProgress();
+    setInterval(() => { void refreshEngine(); void refreshProgress(); }, 2000);
+});
+</script>
+}

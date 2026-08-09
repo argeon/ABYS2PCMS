@@ -41,7 +41,12 @@ public class CheckpointRepository : IDisposable
         }
 
         // Add start_pk / end_pk columns to existing DBs (ignore if already exist)
-        foreach (var migrateSql in new[] { CheckpointSchema.MigrateAddStartPk, CheckpointSchema.MigrateAddEndPk })
+        foreach (var migrateSql in new[]
+                 {
+                     CheckpointSchema.MigrateAddStartPk,
+                     CheckpointSchema.MigrateAddEndPk,
+                     CheckpointSchema.MigrateAddRunEndTime
+                 })
         {
             try
             {
@@ -73,13 +78,38 @@ public class CheckpointRepository : IDisposable
 
     public void UpdateRunStatus(int runId, string status)
     {
-        const string sql = "UPDATE migration_runs SET status = @status WHERE run_id = @runId";
+        var terminal = status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("DONE", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("FAILED", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("STOPPED", StringComparison.OrdinalIgnoreCase);
+
         lock (_lock)
         {
-            using var cmd = new SqliteCommand(sql, _connection);
-            cmd.Parameters.AddWithValue("@status", status);
-            cmd.Parameters.AddWithValue("@runId", runId);
-            cmd.ExecuteNonQuery();
+            if (terminal)
+            {
+                try
+                {
+                    using var cmd = new SqliteCommand(
+                        "UPDATE migration_runs SET status = @status, end_time = @endTime WHERE run_id = @runId",
+                        _connection);
+                    cmd.Parameters.AddWithValue("@status", status);
+                    cmd.Parameters.AddWithValue("@runId", runId);
+                    cmd.Parameters.AddWithValue("@endTime", DateTime.UtcNow.ToString("o"));
+                    cmd.ExecuteNonQuery();
+                    return;
+                }
+                catch (SqliteException)
+                {
+                    // end_time column may be missing on older DBs until migrate runs
+                }
+            }
+
+            using var fallback = new SqliteCommand(
+                "UPDATE migration_runs SET status = @status WHERE run_id = @runId",
+                _connection);
+            fallback.Parameters.AddWithValue("@status", status);
+            fallback.Parameters.AddWithValue("@runId", runId);
+            fallback.ExecuteNonQuery();
         }
     }
 
@@ -323,18 +353,176 @@ public class CheckpointRepository : IDisposable
         }
     }
 
-    public int ResetInterruptedPartitions(int runId)
+    /// <summary>
+    /// Last run that still has Pending/Failed/Running partitions (even if run was marked COMPLETED).
+    /// Used by --continue-tables when the parent run already closed.
+    /// </summary>
+    public (int runId, DateTime startTime, MigrationConfig? config, string status)? FindLastRunWithIncompleteWork()
     {
         const string sql = @"
-            UPDATE table_checkpoints
-            SET status = 'Pending', error_message = 'Reset after interruption', start_time = NULL
-            WHERE run_id = @runId AND status = 'Running'";
+            SELECT r.run_id, r.start_time, r.config_json, r.status
+            FROM migration_runs r
+            WHERE r.status = 'RUNNING'
+               OR EXISTS (
+                    SELECT 1 FROM table_checkpoints t
+                    WHERE t.run_id = r.run_id
+                      AND t.status IN ('Pending', 'Failed', 'Running')
+               )
+            ORDER BY r.run_id DESC
+            LIMIT 1";
+
+        lock (_lock)
+        {
+            using var cmd = new SqliteCommand(sql, _connection);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+
+            var runId = reader.GetInt32(0);
+            var startTime = DateTime.Parse(reader.GetString(1));
+            MigrationConfig? cfg = null;
+            try { cfg = JsonSerializer.Deserialize<MigrationConfig>(reader.GetString(2)); } catch { }
+            var status = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            return (runId, startTime, cfg, status);
+        }
+    }
+
+    /// <summary>Tables that still have work left (Pending / Failed / Running partitions).</summary>
+    public List<string> GetTablesNeedingWork(int runId)
+    {
+        const string sql = @"
+            SELECT DISTINCT table_name
+            FROM table_checkpoints
+            WHERE run_id = @runId AND status IN ('Pending', 'Failed', 'Running')
+            ORDER BY table_name";
 
         lock (_lock)
         {
             using var cmd = new SqliteCommand(sql, _connection);
             cmd.Parameters.AddWithValue("@runId", runId);
-            return cmd.ExecuteNonQuery();
+            using var reader = cmd.ExecuteReader();
+            var list = new List<string>();
+            while (reader.Read())
+                list.Add(reader.GetString(0));
+            return list;
+        }
+    }
+
+    public void ReopenRun(int runId)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                using var cmd = new SqliteCommand(
+                    "UPDATE migration_runs SET status = 'RUNNING', end_time = NULL WHERE run_id = @runId",
+                    _connection);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.ExecuteNonQuery();
+            }
+            catch (SqliteException)
+            {
+                using var fallback = new SqliteCommand(
+                    "UPDATE migration_runs SET status = 'RUNNING' WHERE run_id = @runId",
+                    _connection);
+                fallback.Parameters.AddWithValue("@runId", runId);
+                fallback.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public int ResetInterruptedPartitions(int runId, IReadOnlyCollection<string>? tableNames = null)
+    {
+        lock (_lock)
+        {
+            if (tableNames == null || tableNames.Count == 0)
+            {
+                const string sql = @"
+                    UPDATE table_checkpoints
+                    SET status = 'Pending', error_message = 'Reset after interruption', start_time = NULL
+                    WHERE run_id = @runId AND status = 'Running'";
+                using var cmd = new SqliteCommand(sql, _connection);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                return cmd.ExecuteNonQuery();
+            }
+
+            var total = 0;
+            foreach (var table in tableNames.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                using var cmd = new SqliteCommand(@"
+                    UPDATE table_checkpoints
+                    SET status = 'Pending', error_message = 'Reset after interruption', start_time = NULL
+                    WHERE run_id = @runId AND status = 'Running' AND table_name = @table", _connection);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.Parameters.AddWithValue("@table", table);
+                total += cmd.ExecuteNonQuery();
+            }
+            return total;
+        }
+    }
+
+    /// <summary>
+    /// Tables that have at least one Failed partition in the run.
+    /// </summary>
+    public List<string> GetTablesWithFailedPartitions(int runId)
+    {
+        const string sql = @"
+            SELECT DISTINCT table_name
+            FROM table_checkpoints
+            WHERE run_id = @runId AND status = 'Failed'
+            ORDER BY table_name";
+
+        lock (_lock)
+        {
+            using var cmd = new SqliteCommand(sql, _connection);
+            cmd.Parameters.AddWithValue("@runId", runId);
+            using var reader = cmd.ExecuteReader();
+            var list = new List<string>();
+            while (reader.Read())
+                list.Add(reader.GetString(0));
+            return list;
+        }
+    }
+
+    /// <summary>
+    /// Re-queue Failed partitions for --resume / --retry-failed.
+    /// When <paramref name="tableNames"/> is null/empty, all Failed partitions in the run are reset.
+    /// Otherwise only the listed tables are touched.
+    /// </summary>
+    public int ResetFailedPartitions(int runId, IReadOnlyCollection<string>? tableNames = null)
+    {
+        lock (_lock)
+        {
+            if (tableNames == null || tableNames.Count == 0)
+            {
+                const string sqlAll = @"
+                    UPDATE table_checkpoints
+                    SET status = 'Pending',
+                        error_message = 'Reset failed partition for resume',
+                        start_time = NULL,
+                        end_time = NULL,
+                        rows_processed = 0
+                    WHERE run_id = @runId AND status = 'Failed'";
+                using var cmd = new SqliteCommand(sqlAll, _connection);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                return cmd.ExecuteNonQuery();
+            }
+
+            var total = 0;
+            foreach (var table in tableNames.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                using var cmd = new SqliteCommand(@"
+                    UPDATE table_checkpoints
+                    SET status = 'Pending',
+                        error_message = 'Reset failed partition for resume',
+                        start_time = NULL,
+                        end_time = NULL,
+                        rows_processed = 0
+                    WHERE run_id = @runId AND status = 'Failed' AND table_name = @table", _connection);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.Parameters.AddWithValue("@table", table);
+                total += cmd.ExecuteNonQuery();
+            }
+            return total;
         }
     }
 

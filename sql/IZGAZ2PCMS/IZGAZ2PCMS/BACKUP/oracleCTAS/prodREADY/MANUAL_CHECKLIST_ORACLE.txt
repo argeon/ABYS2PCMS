@@ -1,0 +1,45 @@
+================================================================================
+ORACLE prodREADY — MANUEL CHECKLIST
+Klasor: oracleCTAS/prodREADY/
+Operator: _______________   Tarih: ____/____/2026
+================================================================================
+Her adim: sqlplus @dosya  | tee logs/01_oracle_ctas/Oxx_YYYYMMDD_HHMM.log
+Gate FAIL → DUR. Sonunda: @99_log_status.sql
+================================================================================
+
+On kosul
+[ ] sqlplus MIGRATION/SMS OK
+[ ] TEMP/undo yeterli
+
+Adim                              Dosya                         Saat    Sonuc      cnt/not
+-----------------------------------------------------------------------------------------------
+[ ] O0   session+log              00_session_parallel.sql       ______  OK/FAIL    FORCE56
+[ ] O0b  MIG_PARAM                00_mig_param_full.sql         ______  OK/FAIL    bos
+[ ] O10  STG                      10_stg_inv_acc_inc.sql        ______  OK/FAIL    ______
+[ ] O11  LS_INVOICE               11_ls_invoice.sql             ______  OK/FAIL    tgt=____ bad=0
+[ ] O12  LS_INVLINES              12_ls_invlines.sql            ______  OK/FAIL    ln=____ gt255=____
+[ ] O12d diag (ops)               diag_linenr_gt_255.sql        ______  OK         ______
+[ ] O13  AGR_LIST                 13_ls_mig_agr_list.sql        ______  OK/FAIL    agr=____
+[ ] O14  DEBT_PT                  14_ls_debt_paytrans.sql       ______  OK/FAIL    ______
+[ ] O20  EKSILTEN                 20_ls_eksilten_overlay.sql    ______  OK/FAIL    iade=____
+[ ] O27  GATE EKSILTEN ★          27_gate_eksilten.sql          ______  PASS/FAIL  tam=____
+[ ] O30  TAHSILAT                 30_ls_tahsilat_overlay.sql    ______  OK/FAIL    pt=____
+[ ] O30h TAH_LOG HOTFIX ★         30_HOTFIX_ls_ov_tah_log_pay_before.sql ______ OK  PAY_BEFORE_*
+         (O40 SKIP — hotfix LS_OV_TAH_LOG yeniden uretir)
+[ ] O32  DEBT_PAID+LASTPAID ★     32_ls_ov_debt_paid_lastpaid.sql ______ OK/FAIL  lpd=____ gap=____
+         (O30 zaten LASTPAIDDATE yaziyorsa yeniden; dump: DEBT_PAID_UPD + INV_PAY_GAP)
+[ ] O35  ID_MAP ★                 35_ls_ov_id_map.sql           ______  OK/FAIL    map=____
+[ ] O40  TAH_LOG (eski baseline)  40_ls_tahsilat_log.sql        ______  SKIP       O30h kullan
+[ ] O41  GATE TAHSILAT ★          41_gate_tahsilat.sql          ______  PASS/FAIL  xref0?
+[ ] O50  AFL                      50_ls_afl_open_debt.sql       ______  OK/FAIL    afl=____
+[ ] LOG  ozet                     99_log_status.sql             ______  OK         FAIL yok?
+
+Dump hazirlik
+[ ] FAIL/GATE_FAIL yok (MIG_CTAS_LOG)
+[ ] Dump listesi: LS_INVOICE, LS_INVLINES, LS_MIG_AGR_LIST, LS_DEBT_PAYTRANS,
+                  tum LS_OV_*, LS_OV_ID_MAP, LS_AFL_OPEN_DEBT
+
+Dogrulama SQL: @CHECK_QUERIES_ORACLE.sql  (istege bagli ara kontroller)
+
+Imza: _______________   Bitis: ______
+================================================================================

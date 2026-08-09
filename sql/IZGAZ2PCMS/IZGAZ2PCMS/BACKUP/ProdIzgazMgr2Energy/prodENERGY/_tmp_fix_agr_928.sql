@@ -1,0 +1,42 @@
+USE energy;
+GO
+SET NOCOUNT ON;
+GO
+
+-- Unique engeli kaldir (ABN fan-out)
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID('energy.dbo.LS_005_01_AGR')
+      AND name = 'UX_LS_005_01_AGR_TP2_ABYS'
+)
+    DROP INDEX UX_LS_005_01_AGR_TP2_ABYS ON energy.dbo.LS_005_01_AGR;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID('energy.dbo.LS_005_01_AGR')
+      AND name = 'IX_LS_005_01_AGR_TP2_ABYS'
+)
+    CREATE NONCLUSTERED INDEX IX_LS_005_01_AGR_TP2_ABYS
+        ON energy.dbo.LS_005_01_AGR (TP2, ABYS_ID)
+        WHERE ABYS_ID IS NOT NULL
+        WITH (MAXDOP = 24);
+GO
+
+PRINT CONVERT(varchar(30), SYSDATETIME(), 121) + ' | fill missing LREF (hedef 1581505)';
+GO
+
+EXEC energy.dbo.SP_MIGRATE_LS005_AGR_BULK
+    @BATCH_SIZE = 50000,
+    @RESUME = 0,
+    @HARD_RESET = 0,
+    @MAXDOP = 24,
+    @DEBUG = 1;
+GO
+
+SELECT
+    (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_AGREEMENT WITH (NOLOCK)) AS SRC_ALL,
+    (SELECT COUNT_BIG(*) FROM energy.dbo.LS_005_01_AGR WITH (NOLOCK) WHERE ABYS_ID IS NOT NULL) AS TGT_ALL,
+    (SELECT COUNT_BIG(*) FROM energy.dbo.VW_MIG_AGR_SOURCE s
+     WHERE NOT EXISTS (SELECT 1 FROM energy.dbo.LS_005_01_AGR t WHERE t.LREF = s.LREF)) AS MISSING_BY_LREF;
+GO

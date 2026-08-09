@@ -111,11 +111,33 @@
 }
 
 .table-list {
-    max-height: 400px;
+    max-height: min(70vh, 780px);
+    min-height: 420px;
     overflow-y: auto;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 1rem;
+}
+
+.summary-tables-list {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary, rgba(0,0,0,.15));
+}
+
+.summary-tables-list ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    columns: 2;
+    column-gap: 1.5rem;
+}
+
+.summary-tables-list li {
+    break-inside: avoid;
+    margin-bottom: 0.2rem;
 }
 
 .table-item {

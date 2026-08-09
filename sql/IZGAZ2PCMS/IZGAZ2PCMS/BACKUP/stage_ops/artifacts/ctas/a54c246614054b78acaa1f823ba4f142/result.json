@@ -1,0 +1,22 @@
+{
+  "runId": 3,
+  "runUuid": "a54c246614054b78acaa1f823ba4f142",
+  "surface": "ctas",
+  "items": [
+    {
+      "Id": 3,
+      "RunId": 3,
+      "StageId": "CTAS_LS_AGREEMENT",
+      "StageName": "LS_AGREEMENT",
+      "Status": "Failed",
+      "ExitCode": 1,
+      "ElapsedMs": 1467,
+      "Rows": null,
+      "RowsPerSec": null,
+      "LogPath": "C:\\Users\\HW5536\\source\\repos\\Migratorv0\\sql\\IZGAZ2PCMS\\IZGAZ2PCMS\\stage_ops\\logs\\ctas\\a54c246614054b78acaa1f823ba4f142\\CTAS_LS_AGREEMENT.log",
+      "DetailJson": "{\u0022stdout\u0022:\u0022{\\u0022stageId\\u0022:\\u0022CTAS_LS_AGREEMENT\\u0022,\\u0022name\\u0022:\\u0022LS_AGREEMENT\\u0022,\\u0022status\\u0022:\\u0022Failed\\u0022,\\u0022exitCode\\u0022:1,\\u0022elapsedMs\\u0022:275,\\u0022logPath\\u0022:\\u0022C:\\\\\\\\Users\\\\\\\\HW5536\\\\\\\\source\\\\\\\\repos\\\\\\\\Migratorv0\\\\\\\\sql\\\\\\\\IZGAZ2PCMS\\\\\\\\IZGAZ2PCMS\\\\\\\\stage_ops\\\\\\\\logs\\\\\\\\ctas\\\\\\\\a54c246614054b78acaa1f823ba4f142\\\\\\\\CTAS_LS_AGREEMENT.log\\u0022}\\r\\n\u0022,\u0022stderr\u0022:\u0022\u0022}",
+      "StartedAt": "2026-07-20T03:47:40.1576561+03:00",
+      "CompletedAt": "2026-07-20T03:47:41.6371577+03:00"
+    }
+  ]
+}

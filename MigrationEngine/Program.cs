@@ -4,6 +4,7 @@ using MigrationEngine.Loaders;
 using MigrationEngine.Schema;
 using MigrationEngine.Services;
 using MigrationEngine.Validation;
+using MigrationShared;
 using MigrationShared.Enums;
 using MigrationEngine.Summary;
 using MigrationShared.Models;
@@ -12,6 +13,8 @@ using Serilog;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
+
+SqlServerTypesBootstrap.Ensure();
 
 static string ParseReferencedTableFromFkDdl(string fkDdl)
 {
@@ -32,25 +35,108 @@ static string ParseReferencedTableFromFkDdl(string fkDdl)
 }
 
 /// <summary>
+/// Ensure Oracle ODP.NET pool can serve nested table×partition workers.
+/// Default Max Pool Size is 100 — 56 tables × 48 partitions overflows → ORA-50012.
+/// </summary>
+static string EnsureOraclePoolSettings(string connectionString, int maxPoolSize = 200, int connectionTimeoutSec = 300)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        return connectionString;
+
+    static bool HasKey(string cs, string key) =>
+        cs.Contains(key + "=", StringComparison.OrdinalIgnoreCase)
+        || cs.Contains(key + " =", StringComparison.OrdinalIgnoreCase);
+
+    var cs = connectionString.Trim().TrimEnd(';');
+    if (!HasKey(cs, "Max Pool Size"))
+        cs += $";Max Pool Size={maxPoolSize}";
+    if (!HasKey(cs, "Min Pool Size"))
+        cs += ";Min Pool Size=0";
+    if (!HasKey(cs, "Connection Timeout"))
+        cs += $";Connection Timeout={connectionTimeoutSec}";
+    // Validate Connection=true holds extra round-trips under load → ORA-50012; leave off unless set.
+    if (!HasKey(cs, "Connection Lifetime"))
+        cs += ";Connection Lifetime=0";
+    if (!HasKey(cs, "Incr Pool Size"))
+        cs += ";Incr Pool Size=5";
+    return cs;
+}
+
+/// <summary>
+/// Soft pool guard — leave headroom for COUNT/schema/spatial extras (ORA-50012).
+/// Caps concurrent tables so tableParallelism × partitionWorkers + reserve &lt; pool budget.
+/// </summary>
+static int ApplyOraclePoolGuard(int tableParallelism, int partitionParallelism)
+{
+    tableParallelism = Math.Max(1, tableParallelism);
+    partitionParallelism = Math.Max(1, partitionParallelism);
+    const int oraclePoolBudget = 64; // headroom under Max Pool Size 200
+    const int reserveForMetadata = 8; // GetTableRowCount / schema / spatial
+    var usable = Math.Max(1, oraclePoolBudget - reserveForMetadata);
+    var maxTables = Math.Max(1, usable / partitionParallelism);
+    return Math.Min(tableParallelism, maxTables);
+}
+
+static void NormalizeParallelSettings(MigrationConfig cfg)
+{
+    if (cfg.OracleParallel > 0)
+        cfg.DegreeOfParallelism = cfg.OracleParallel;
+    else if (cfg.DegreeOfParallelism > 0)
+        cfg.OracleParallel = cfg.DegreeOfParallelism;
+    else
+        cfg.DegreeOfParallelism = cfg.OracleParallel = 56;
+
+    if (cfg.SqlMaxDop > 0)
+        cfg.PartitionDegreeOfParallelism = cfg.SqlMaxDop;
+    else if (cfg.PartitionDegreeOfParallelism > 0)
+        cfg.SqlMaxDop = cfg.PartitionDegreeOfParallelism;
+    else
+        cfg.PartitionDegreeOfParallelism = cfg.SqlMaxDop = 48;
+
+    if (cfg.TableParallelism <= 0)
+        cfg.TableParallelism = 2;
+}
+
+/// <summary>
 /// Migratorv0 dashboard reads checkpoint DB under the MigrationEngine project folder; relative paths in
 /// appsettings would otherwise resolve next to the EXE (bin/Debug/...), so the UI never saw updates.
 /// </summary>
 static string ResolveCheckpointSqlitePath(string? sqliteFromConfig)
 {
     var raw = string.IsNullOrWhiteSpace(sqliteFromConfig) ? "migration_checkpoint.db" : sqliteFromConfig.Trim();
-    if (Path.IsPathRooted(raw))
-        return Path.GetFullPath(raw);
+    var fileName = Path.GetFileName(raw);
+    if (string.IsNullOrWhiteSpace(fileName))
+        fileName = "migration_checkpoint.db";
 
-    for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+    string ResolveBesideEngine()
     {
-        if (File.Exists(Path.Combine(dir.FullName, "MigrationEngine.csproj")))
-            return Path.GetFullPath(Path.Combine(dir.FullName, Path.GetFileName(raw)));
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "MigrationEngine.csproj")))
+                return Path.GetFullPath(Path.Combine(dir.FullName, fileName));
+        }
+
+        // Published exe: AppContext.BaseDirectory may be a temp extract dir — use process path.
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+        return Path.GetFullPath(Path.Combine(exeDir, fileName));
     }
 
-    // Self-contained single-file: AppContext.BaseDirectory is a temp extraction dir.
-    // Use the actual exe directory instead.
-    var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-    return Path.GetFullPath(Path.Combine(exeDir, Path.GetFileName(raw)));
+    if (Path.IsPathRooted(raw))
+    {
+        var full = Path.GetFullPath(raw);
+        var parent = Path.GetDirectoryName(full);
+        // Absolute path from another machine (e.g. deploy copied local appsettings) → fall back.
+        if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+            return full;
+
+        var fallback = ResolveBesideEngine();
+        Log.Warning(
+            "Checkpoint SqlitePath directory missing ({Configured}); using {Fallback}",
+            full, fallback);
+        return fallback;
+    }
+
+    return ResolveBesideEngine();
 }
 
 var config = new ConfigurationBuilder()
@@ -79,6 +165,9 @@ try
 
     var migrationConfig = new MigrationConfig();
     config.GetSection("Migration").Bind(migrationConfig);
+    NormalizeParallelSettings(migrationConfig);
+    migrationConfig.OracleConnectionString = EnsureOraclePoolSettings(migrationConfig.OracleConnectionString);
+
     // Anahtar yoksa veya boşsa otomatik aktarım başlamasın (dotnet run sadece motoru açar, çıkar).
     if (string.IsNullOrWhiteSpace(config["Migration:AutoStart"]))
         migrationConfig.AutoStart = false;
@@ -87,13 +176,39 @@ try
     var forceRun = argv.Any(a => string.Equals(a, "--run", StringComparison.OrdinalIgnoreCase)
         || string.Equals(a, "-y", StringComparison.OrdinalIgnoreCase));
     var forceResume = argv.Any(a => string.Equals(a, "--resume", StringComparison.OrdinalIgnoreCase));
+    var forceRetryFailed = argv.Any(a => string.Equals(a, "--retry-failed", StringComparison.OrdinalIgnoreCase));
+    var forceContinueTables = argv.Any(a => string.Equals(a, "--continue-tables", StringComparison.OrdinalIgnoreCase));
+    // --tables=A,B or --tables A,B
+    var tablesArg = argv.FirstOrDefault(a => a.StartsWith("--tables=", StringComparison.OrdinalIgnoreCase));
+    var tablesArgList = new List<string>();
+    if (!string.IsNullOrWhiteSpace(tablesArg))
+    {
+        tablesArgList = tablesArg["--tables=".Length..]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+    }
+    else
+    {
+        var ti = argv.FindIndex(a => string.Equals(a, "--tables", StringComparison.OrdinalIgnoreCase));
+        if (ti >= 0 && ti + 1 < argv.Count)
+        {
+            tablesArgList = argv[ti + 1]
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+    }
+
+    if (forceRetryFailed || forceContinueTables)
+        forceResume = true; // scoped resume
 
     if (!migrationConfig.AutoStart && !forceRun && !forceResume)
     {
         Log.Information("=== Oracle to MSSQL Migration Engine (idle) ===");
         Log.Information("Migration:AutoStart is false; migration will not run.");
-        Log.Information("Run once:    dotnet run -- --run      (fresh start)");
-        Log.Information("Resume:      dotnet run -- --resume   (continue interrupted migration)");
+        Log.Information("Run once:         dotnet run -- --run");
+        Log.Information("Resume all:       dotnet run -- --resume");
+        Log.Information("Retry failed:     dotnet run -- --retry-failed [--tables T1,T2]");
+        Log.Information("Continue tables:  dotnet run -- --continue-tables --tables T1,T2");
         return 0;
     }
 
@@ -103,29 +218,138 @@ try
     checkpoint = new CheckpointRepository(checkpointPath);
     extendedCheckpoint = new ExtendedCheckpointRepository(checkpointPath);
 
-    // --resume: son yarıda kalan run'ı bul ve devam et
+    // --resume / --retry-failed / --continue-tables
     bool isResume = false;
     if (forceResume)
     {
-        var incomplete = checkpoint.FindLastIncompleteRun();
+        (int runId, DateTime startTime, MigrationConfig? config)? incomplete = checkpoint.FindLastIncompleteRun();
+        string? priorStatus = null;
+        if (!incomplete.HasValue && (forceContinueTables || forceRetryFailed))
+        {
+            var withWork = checkpoint.FindLastRunWithIncompleteWork();
+            if (withWork.HasValue)
+            {
+                incomplete = (withWork.Value.runId, withWork.Value.startTime, withWork.Value.config);
+                priorStatus = withWork.Value.status;
+            }
+        }
+
         if (incomplete.HasValue)
         {
             runId = incomplete.Value.runId;
             isResume = true;
-            var resetCount = checkpoint.ResetInterruptedPartitions(runId);
-            Log.Information("=== RESUME MODE: Run #{RunId} (started {StartTime:g}) ===", runId, incomplete.Value.startTime);
-            Log.Information("Reset {Count} interrupted partition(s) to Pending", resetCount);
-            // Yarıda kalan run'ın config'ini yükle (mevcut appsettings override olabilir)
+
+            if (!string.IsNullOrEmpty(priorStatus)
+                && !priorStatus.Equals("RUNNING", StringComparison.OrdinalIgnoreCase))
+            {
+                checkpoint.ReopenRun(runId);
+                Log.Information("Reopened run #{RunId} (was {Status}) for continue/retry", runId, priorStatus);
+            }
+
+            List<string>? scopedTables = null;
+            if (forceContinueTables)
+            {
+                if (tablesArgList.Count == 0)
+                {
+                    Log.Warning("=== CONTINUE-TABLES: --tables required ===");
+                    return 1;
+                }
+
+                var needing = checkpoint.GetTablesNeedingWork(runId);
+                scopedTables = tablesArgList
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                Log.Information(
+                    "CONTINUE-TABLES: requested={Req}; needingWork={Need}",
+                    string.Join(", ", scopedTables),
+                    needing.Count > 0 ? string.Join(", ", needing) : "(none in checkpoint)");
+            }
+            else if (forceRetryFailed)
+            {
+                var failedTables = checkpoint.GetTablesWithFailedPartitions(runId);
+                if (tablesArgList.Count > 0)
+                {
+                    var wanted = new HashSet<string>(tablesArgList, StringComparer.OrdinalIgnoreCase);
+                    scopedTables = failedTables.Where(t => wanted.Contains(t)).ToList();
+                    var unknown = tablesArgList.Where(t => !failedTables.Exists(f => f.Equals(t, StringComparison.OrdinalIgnoreCase))).ToList();
+                    if (unknown.Count > 0)
+                        Log.Warning("Requested tables have no Failed partitions (ignored): {Tables}", string.Join(", ", unknown));
+                }
+                else
+                {
+                    scopedTables = failedTables;
+                }
+
+                if (scopedTables.Count == 0)
+                {
+                    Log.Warning("=== RETRY-FAILED: no Failed tables to retry in Run #{RunId} ===", runId);
+                    return 0;
+                }
+            }
+
+            var resetRunning = (forceRetryFailed || forceContinueTables)
+                ? checkpoint.ResetInterruptedPartitions(runId, scopedTables)
+                : checkpoint.ResetInterruptedPartitions(runId);
+            var resetFailed = (forceRetryFailed || forceContinueTables)
+                ? checkpoint.ResetFailedPartitions(runId, scopedTables)
+                : checkpoint.ResetFailedPartitions(runId);
+
+            Log.Information(
+                forceContinueTables
+                    ? "=== CONTINUE-TABLES MODE: Run #{RunId} (started {StartTime:g}) ==="
+                    : forceRetryFailed
+                        ? "=== RETRY-FAILED MODE: Run #{RunId} (started {StartTime:g}) ==="
+                        : "=== RESUME MODE: Run #{RunId} (started {StartTime:g}) ===",
+                runId, incomplete.Value.startTime);
+            Log.Information("Reset Running→Pending: {Running}; Failed→Pending: {Failed}", resetRunning, resetFailed);
+
+            // Yarıda kalan run'ın config'ini yükle; paralel ayarları güncel appsettings'ten al
             if (incomplete.Value.config != null
                 && !string.IsNullOrWhiteSpace(incomplete.Value.config.OracleConnectionString)
                 && !string.IsNullOrWhiteSpace(incomplete.Value.config.MssqlConnectionString))
+            {
+                var fresh = new MigrationConfig();
+                config.GetSection("Migration").Bind(fresh);
+                NormalizeParallelSettings(fresh);
+
                 migrationConfig = incomplete.Value.config;
+                migrationConfig.DegreeOfParallelism = fresh.DegreeOfParallelism;
+                migrationConfig.OracleParallel = fresh.OracleParallel;
+                migrationConfig.TableParallelism = fresh.TableParallelism;
+                migrationConfig.PartitionDegreeOfParallelism = fresh.PartitionDegreeOfParallelism;
+                migrationConfig.SqlMaxDop = fresh.SqlMaxDop;
+                migrationConfig.ParallelPartitionLoad = fresh.ParallelPartitionLoad;
+                migrationConfig.FetchSizeMB = fresh.FetchSizeMB > 0 ? fresh.FetchSizeMB : migrationConfig.FetchSizeMB;
+                migrationConfig.BatchSize = fresh.BatchSize > 0 ? fresh.BatchSize : migrationConfig.BatchSize;
+                migrationConfig.MigrateSpatial = fresh.MigrateSpatial;
+                migrationConfig.DefaultSpatialSourceSridWhenMissing = fresh.DefaultSpatialSourceSridWhenMissing ?? migrationConfig.DefaultSpatialSourceSridWhenMissing;
+                if (fresh.SpatialSridOverrides is { Count: > 0 })
+                    migrationConfig.SpatialSridOverrides = fresh.SpatialSridOverrides;
+                NormalizeParallelSettings(migrationConfig);
+                Log.Information(
+                    "Resume parallel overlay from appsettings: TableParallelism={T}, OracleParallel={O}, SqlMaxDop={S}",
+                    migrationConfig.TableParallelism, migrationConfig.OracleParallel, migrationConfig.SqlMaxDop);
+            }
+
+            if ((forceRetryFailed || forceContinueTables) && scopedTables is { Count: > 0 })
+            {
+                migrationConfig.Tables = scopedTables;
+                Log.Information(
+                    "{Mode} scoped to {Count} table(s): {Tables}",
+                    forceContinueTables ? "CONTINUE-TABLES" : "RETRY-FAILED",
+                    scopedTables.Count, string.Join(", ", scopedTables));
+            }
         }
         else
         {
-            Log.Warning("--resume requested but no incomplete run found in checkpoint DB. Starting fresh.");
+            Log.Warning("--resume/--retry-failed/--continue-tables requested but no resumable run found in checkpoint DB. Starting fresh.");
+            if (forceRetryFailed || forceContinueTables)
+                return 1;
         }
     }
+
+    migrationConfig.OracleConnectionString = EnsureOraclePoolSettings(migrationConfig.OracleConnectionString);
 
     if (string.IsNullOrWhiteSpace(migrationConfig.OracleConnectionString) ||
         string.IsNullOrWhiteSpace(migrationConfig.MssqlConnectionString))
@@ -369,13 +593,33 @@ try
         progress.WritePhaseComplete("RETRY_SETUP", "Per-table retry modes applied");
     }
 
-    progress.WritePhaseStart("DATA_MIGRATION", $"Migrating data with {migrationConfig.DegreeOfParallelism} parallel workers");
+    var useStagingFlow = migrationConfig.UseStagingMerge || migrationConfig.UsePartitionSwitch;
+    var oracleParallel = Math.Max(1, migrationConfig.DegreeOfParallelism); // slice count per table
+    var partitionParallelismGlobal = (migrationConfig.ParallelPartitionLoad || useStagingFlow)
+        ? Math.Max(1, migrationConfig.PartitionDegreeOfParallelism)
+        : 1;
+    var requestedTableParallelism = Math.Max(1, migrationConfig.TableParallelism);
+    var tableParallelism = (migrationConfig.ParallelPartitionLoad || useStagingFlow)
+        ? ApplyOraclePoolGuard(requestedTableParallelism, partitionParallelismGlobal)
+        : requestedTableParallelism;
+
+    progress.WritePhaseStart(
+        "DATA_MIGRATION",
+        $"packages={tableParallelism} (req {requestedTableParallelism}), oracleSlices={oracleParallel}, sqlMaxDop={partitionParallelismGlobal}");
+    Log.Information(
+        "Parallel controls: TableParallelism={TableDop} (requested {Req}), OracleParallel/slices={Ora}, SqlMaxDop/partitionWorkers={Part}",
+        tableParallelism, requestedTableParallelism, oracleParallel, partitionParallelismGlobal);
+    if (tableParallelism < requestedTableParallelism)
+    {
+        Log.Warning(
+            "TableParallelism reduced {Req} → {Actual} by Oracle pool guard (budget 96 / SqlMaxDop {Part})",
+            requestedTableParallelism, tableParallelism, partitionParallelismGlobal);
+    }
 
     var extractor = new OracleParallelExtractor(
         migrationConfig.OracleConnectionString,
         migrationConfig.FetchSizeMB);
 
-    var useStagingFlow = migrationConfig.UseStagingMerge || migrationConfig.UsePartitionSwitch;
     var stagingMergeLoader = useStagingFlow
         ? new StagingMergeLoader(migrationConfig.MssqlConnectionString)
         : null;
@@ -383,7 +627,7 @@ try
         ? new PartitionSwitchLoader(migrationConfig.MssqlConnectionString)
         : null;
 
-    var semaphore = new SemaphoreSlim(migrationConfig.DegreeOfParallelism);
+    var semaphore = new SemaphoreSlim(tableParallelism);
     var tableRowCounts = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
     foreach (var t in tables)
         tableRowCounts.TryAdd(t.TableName, 0L);
@@ -393,7 +637,7 @@ try
 
     await Parallel.ForEachAsync(tables, new ParallelOptions 
     { 
-        MaxDegreeOfParallelism = migrationConfig.DegreeOfParallelism,
+        MaxDegreeOfParallelism = tableParallelism,
         CancellationToken = dataMigrationToken
     }, async (table, loopCt) =>
     {
@@ -479,11 +723,7 @@ try
             }
 
             long totalRowsMigrated = 0;
-            var partitionParallelism = (migrationConfig.ParallelPartitionLoad || useStagingFlow)
-                ? (migrationConfig.PartitionDegreeOfParallelism > 0
-                    ? migrationConfig.PartitionDegreeOfParallelism
-                    : migrationConfig.DegreeOfParallelism)
-                : 1;
+            var partitionParallelism = partitionParallelismGlobal;
             var partitionTargets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             if (partitions.Count > 0)
             {
@@ -994,9 +1234,11 @@ catch (Exception ex)
 {
     Log.Fatal(ex, "Migration failed with fatal error");
     
-    // Migration başarısız - hata kaydet ve history'yi güncelle
     try
     {
+        if (runId > 0)
+            checkpoint?.UpdateRunStatus(runId, "FAILED");
+
         extendedCheckpoint?.LogError(
             runId,
             null,

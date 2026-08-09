@@ -79,7 +79,8 @@ public class DashboardDataService
                     COALESCE(k.pending_tables, 0),
                     COALESCE(k.failed_tables, 0),
                     rt.total_rows_processed,
-                    rt.total_rows_expected
+                    rt.total_rows_expected,
+                    mr.config_json
                 FROM migration_runs mr
                 CROSS JOIN tbl_counts k
                 CROSS JOIN row_totals rt
@@ -97,6 +98,7 @@ public class DashboardDataService
             int failed;
             long totalRowsProcessed;
             long totalRowsExpected;
+            string? configJson = null;
 
             await using (var reader = await cmd.ExecuteReaderAsync())
             {
@@ -113,14 +115,30 @@ public class DashboardDataService
                 failed = reader.GetInt32(7);
                 totalRowsProcessed = reader.GetInt64(8);
                 totalRowsExpected = reader.GetInt64(9);
+                configJson = reader.IsDBNull(10) ? null : reader.GetString(10);
             }
 
-            var elapsed = DateTime.UtcNow - startTime;
-            var rowsPerSecond = await GetCurrentThroughputAsync(connection);
+            var configuredTables = ParseConfiguredTables(configJson);
+            if (configuredTables.Count > 0)
+                total = Math.Max(total, configuredTables.Count);
+
+            var statusUpper = (mrStatus ?? string.Empty).ToUpperInvariant();
+            var isTerminal = statusUpper is "COMPLETED" or "DONE" or "FAILED" or "STOPPED";
+
+            DateTime? runEndTime = null;
+            if (isTerminal)
+                runEndTime = await GetMaxPartitionEndTimeAsync(connection, runId) ?? DateTime.UtcNow;
+
+            var elapsedEnd = isTerminal && runEndTime.HasValue ? runEndTime.Value : DateTime.UtcNow;
+            if (elapsedEnd < startTime)
+                elapsedEnd = startTime;
+            var elapsed = elapsedEnd - startTime;
+
+            var rowsPerSecond = isTerminal ? 0 : await GetCurrentThroughputAsync(connection);
             
             // Calculate estimated remaining time
             TimeSpan? estimatedRemaining = null;
-            if (rowsPerSecond > 0 && totalRowsExpected > totalRowsProcessed)
+            if (!isTerminal && rowsPerSecond > 0 && totalRowsExpected > totalRowsProcessed)
             {
                 var remainingRows = totalRowsExpected - totalRowsProcessed;
                 var remainingSeconds = remainingRows / rowsPerSecond;
@@ -129,10 +147,10 @@ public class DashboardDataService
             
             // Calculate estimated completion time
             DateTime? estimatedCompletionTime = null;
-            if (estimatedRemaining.HasValue && estimatedRemaining.Value.TotalSeconds > 0)
-            {
+            if (isTerminal)
+                estimatedCompletionTime = runEndTime;
+            else if (estimatedRemaining.HasValue && estimatedRemaining.Value.TotalSeconds > 0)
                 estimatedCompletionTime = DateTime.Now.Add(estimatedRemaining.Value);
-            }
 
             _logger.LogDebug(
                 "Migration Summary - RunId: {RunId}, Source: {Source:N0}, Loaded: {Loaded:N0}, Match: {Match:P2}, Throughput: {Throughput:N0} rows/s",
@@ -144,6 +162,7 @@ public class DashboardDataService
             {
                 RunId = runId,
                 StartTime = startTime,
+                EndTime = runEndTime,
                 Status = ParseStoredStatus(mrStatus),
                 TotalTables = total,
                 CompletedTables = completed,
@@ -158,7 +177,8 @@ public class DashboardDataService
                 ElapsedTime = elapsed,
                 EstimatedRemaining = estimatedRemaining,
                 EstimatedCompletionTime = estimatedCompletionTime,
-                CurrentRowsPerSecond = rowsPerSecond
+                CurrentRowsPerSecond = rowsPerSecond,
+                ConfiguredTables = configuredTables
             };
         }
         catch (Exception ex)
@@ -340,6 +360,67 @@ public class DashboardDataService
             _logger.LogError(ex, "Error retrieving recent events");
             return new List<ProgressEvent>();
         }
+    }
+
+    private static async Task<DateTime?> GetMaxPartitionEndTimeAsync(SqliteConnection connection, int runId)
+    {
+        const string sql = @"
+            SELECT MAX(end_time)
+            FROM table_checkpoints
+            WHERE run_id = @runId AND end_time IS NOT NULL AND TRIM(end_time) <> ''";
+
+        await using var cmd = new SqliteCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@runId", runId);
+        var scalar = await cmd.ExecuteScalarAsync();
+        if (scalar == null || scalar == DBNull.Value)
+            return null;
+        return DateTime.TryParse(Convert.ToString(scalar), out var dt) ? dt : null;
+    }
+
+    private static List<string> ParseConfiguredTables(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson))
+            return new List<string>();
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(configJson);
+            var root = doc.RootElement;
+            // Stored as MigrationConfig directly, or nested under Migration
+            if (root.TryGetProperty("Tables", out var tablesEl) ||
+                root.TryGetProperty("tables", out tablesEl))
+            {
+                return tablesEl.ValueKind == System.Text.Json.JsonValueKind.Array
+                    ? tablesEl.EnumerateArray()
+                        .Select(e => e.GetString())
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Select(s => s!)
+                        .ToList()
+                    : new List<string>();
+            }
+
+            if (root.TryGetProperty("Migration", out var mig) ||
+                root.TryGetProperty("migration", out mig))
+            {
+                if (mig.TryGetProperty("Tables", out tablesEl) ||
+                    mig.TryGetProperty("tables", out tablesEl))
+                {
+                    return tablesEl.ValueKind == System.Text.Json.JsonValueKind.Array
+                        ? tablesEl.EnumerateArray()
+                            .Select(e => e.GetString())
+                            .Where(s => !string.IsNullOrWhiteSpace(s))
+                            .Select(s => s!)
+                            .ToList()
+                        : new List<string>();
+                }
+            }
+        }
+        catch
+        {
+            // ignore malformed config
+        }
+
+        return new List<string>();
     }
 
     private string GetDbPath()

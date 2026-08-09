@@ -19,6 +19,12 @@ public class MigrationSummary
     public DateTime StartTime { get; set; }
     public DateTime? EstimatedCompletionTime { get; set; }
     public MigrationStatus Status { get; set; }
+
+    /// <summary>Frozen when run is terminal (COMPLETED/FAILED); wall-clock stop time.</summary>
+    public DateTime? EndTime { get; set; }
+
+    /// <summary>Tables listed in the run config (all planned transfers).</summary>
+    public List<string> ConfiguredTables { get; set; } = new();
     
     // Row count comparison
     public long TotalRowsSource { get; set; }  // Oracle toplam kayıt

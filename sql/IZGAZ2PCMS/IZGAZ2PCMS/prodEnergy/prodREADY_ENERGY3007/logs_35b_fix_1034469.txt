@@ -1,0 +1,24 @@
+Changed database context to 'energy'.
+2026-08-03 14:32:47.3190509 | 35b FIX BANKREF AGR=1034469
+UPDATED pt~29 tah=0 main=29 debtPt=29
+ok_bank     mismatch    n          
+----------- ----------- -----------
+         30           0          30
+dekont                                                                           sms_bank             want got_lref    got  vezne               
+-------------------------------------------------------------------------------- -------------------- ---- ----------- ---- --------------------
+202607161131                                                                                       38 GRNT          10 GRNT                  538
+202606151505                                                                                       38 GRNT          10 GRNT                  538
+202605151346                                                                                       38 GRNT          10 GRNT                  538
+202604141078                                                                                       38 GRNT          10 GRNT                  538
+202603161651                                                                                       38 GRNT          10 GRNT                  538
+202602161272                                                                                       38 GRNT          10 GRNT                  538
+26011600051                                                                                        31 ISBK           6 ISBK                  531
+25121500127                                                                                        31 ISBK           6 ISBK                  531
+00001878601                                                                                        31 ISBK           6 ISBK                  531
+00001853939                                                                                        31 ISBK           6 ISBK                  531
+00001830245                                                                                        31 ISBK           6 ISBK                  531
+00001808250                                                                                        31 ISBK           6 ISBK                  531
+25071600029                                                                                        31 ISBK           6 ISBK                  531
+25061600081                                                                                        31 ISBK           6 ISBK                  531
+25051600059                                                                                        31 ISBK           6 ISBK                  531
+2026-08-03 14:32:47.3621945 | 35b FIX BANKREF DONE

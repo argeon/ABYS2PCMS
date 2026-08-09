@@ -1,0 +1,76 @@
+@page "/mssql-copy/start"
+@model MigrationWeb.Pages.MssqlCopy.StartModel
+@{
+    ViewData["Title"] = "Start MSSQL Copy";
+}
+
+<div class="container" style="max-width: 900px; margin-top: 3rem;">
+    <div class="card">
+        <div class="card-header bg-success text-white">
+            <h4 class="mb-0"><i class="fas fa-check-circle me-2"></i>Configuration Saved Successfully</h4>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-success">
+                <strong>Step 1 Complete!</strong> Your MSSQL→MSSQL copy configuration has been saved.
+            </div>
+
+            <h5>Next Steps:</h5>
+            <div class="mb-3">
+                <h6>1. Navigate to MssqlCopyEngine</h6>
+                <div class="bg-dark border rounded p-2 d-flex justify-content-between align-items-center">
+                    <code>cd @Model.EnginePath</code>
+                </div>
+            </div>
+            <div class="mb-3">
+                <h6>2. Start the engine</h6>
+                <div class="bg-dark border rounded p-2">
+                    <code>dotnet run -- --run</code>
+                </div>
+            </div>
+            <div class="mb-3">
+                <h6>3. Monitor progress</h6>
+                <p class="text-muted mb-0">Open the MSSQL Copy progress panel.</p>
+            </div>
+
+            <hr class="my-4">
+            <div class="text-center">
+                <button class="btn btn-success btn-lg me-3" id="autoStartEngineBtn" onclick="autoStartEngine()">
+                    <i class="fas fa-rocket"></i> Start Engine Now
+                </button>
+                <a href="/mssql-copy" class="btn btn-primary btn-lg">
+                    <i class="fas fa-chart-line"></i> Go to Progress
+                </a>
+            </div>
+            <div class="alert alert-warning mt-4 mb-0">
+                Configuration file: <code>@Model.ConfigPath</code>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+async function autoStartEngine() {
+    const btn = document.getElementById('autoStartEngineBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Derleniyor…';
+    try {
+        const buildResponse = await fetch('/api/mssql-copy-engine/build', { method: 'POST' });
+        const buildResult = await buildResponse.json();
+        if (!buildResult.success) throw new Error('Build başarısız: ' + (buildResult.error || ''));
+
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Başlatılıyor…';
+        const response = await fetch('/api/mssql-copy-engine/start', { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Motor başlatılamadı');
+
+        btn.innerHTML = '<i class="fas fa-check"></i> Motor çalışıyor';
+        window.location.href = '/mssql-copy';
+    } catch (error) {
+        alert('Hata: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-rocket"></i> Start Engine Now';
+    }
+}
+</script>
+}

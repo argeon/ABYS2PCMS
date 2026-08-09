@@ -16,6 +16,9 @@ let lastEngineRunning = false;
 /** Tamamlanma banner’ının bir kez gösterilmesi için önceki terminal durumu izlenir. */
 let _prevWasDone = false;
 /** Son partition yanıtı (ham); özet satırı güncellenince rozetler yeniden çizilir. */
+let _lastConfiguredTables = [];
+let _frozenElapsedText = null;
+let _frozenElapsedRunId = null;
 let lastPartitionListRaw = [];
 
 function setEngineStatusDetail(text, warn = false) {
@@ -69,6 +72,11 @@ function normalizeSummary(s) {
         failedTables: n('failedTables', 'FailedTables', 0),
         overallPercentComplete: Number(n('overallPercentComplete', 'OverallPercentComplete', 0)),
         elapsedTime: n('elapsedTime', 'ElapsedTime', ''),
+        configuredTables: (() => {
+            const raw = pick(s, 'configuredTables', 'ConfiguredTables', null);
+            return Array.isArray(raw) ? raw.map(String) : [];
+        })(),
+        endTime: n('endTime', 'EndTime', null),
         estimatedRemaining: n('estimatedRemaining', 'EstimatedRemaining', null),
         currentRowsPerSecond: Number(n('currentRowsPerSecond', 'CurrentRowsPerSecond', 0)),
         totalRowsProcessed: Number(n('totalRowsProcessed', 'TotalRowsProcessed', 0)),
@@ -168,10 +176,47 @@ function renderTableProgress(partitions) {
     const tbody = document.getElementById('tableProgressGrid');
     const summaryEl = document.getElementById('tableProgressSummary');
     if (!tbody) return;
-    const rows = summarizeTableProgress(partitions);
+    let rows = summarizeTableProgress(partitions);
+
+    // Config'teki tüm tabloları göster (henüz partition başlamamış olanlar dahil)
+    if (_lastConfiguredTables.length) {
+        const byName = new Map(rows.map((r) => [r.tableName.toUpperCase(), r]));
+        for (const name of _lastConfiguredTables) {
+            const key = String(name || '').toUpperCase();
+            if (!key || byName.has(key)) continue;
+            byName.set(key, {
+                tableName: name,
+                rowsProcessed: 0,
+                totalRows: 0,
+                running: 0,
+                staleRunning: 0,
+                pending: 1,
+                done: 0,
+                failed: 0,
+                skipped: 0,
+                totalPartitions: 0
+            });
+        }
+        // Preserve config order, then any extras
+        const ordered = [];
+        const seen = new Set();
+        for (const name of _lastConfiguredTables) {
+            const key = String(name || '').toUpperCase();
+            const row = byName.get(key);
+            if (row && !seen.has(key)) {
+                ordered.push(row);
+                seen.add(key);
+            }
+        }
+        for (const [key, row] of byName) {
+            if (!seen.has(key)) ordered.push(row);
+        }
+        rows = ordered;
+    }
+
     if (!rows.length) {
         tableRowByName.clear();
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Tablo ilerleme verisi bekleniyor…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Tablo ilerleme verisi bekleniyor…</td></tr>';
         if (summaryEl) summaryEl.textContent = 'Henüz tablo başlamadı';
         return;
     }
@@ -189,12 +234,19 @@ function renderTableProgress(partitions) {
         if (!keep.has(k)) tableRowByName.delete(k);
     }
 
+    window._lastPendingTableNames = rows
+        .filter((x) => {
+            const st = tableStatusFromSummary(x);
+            return st === 'Pending' || st === 'Interrupted';
+        })
+        .map((x) => x.tableName);
+
     const frag = document.createDocumentFragment();
     for (const t of rows) {
         let tr = tableRowByName.get(t.tableName);
         if (!tr) {
             tr = document.createElement('tr');
-            for (let i = 0; i < 7; i++) tr.appendChild(document.createElement('td'));
+            for (let i = 0; i < 8; i++) tr.appendChild(document.createElement('td'));
             tableRowByName.set(t.tableName, tr);
         }
         const st = tableStatusFromSummary(t);
@@ -211,9 +263,24 @@ function renderTableProgress(partitions) {
         tr.cells[5].innerHTML = `<div class="d-flex align-items-center gap-2"><div class="progress flex-grow-1 partition-progress"><div class="progress-bar ${pct >= 100 ? 'bg-success' : 'bg-primary'}" style="width:${pct}%"></div></div><small class="text-muted">${pct}%</small></div>`;
         tr.cells[6].className = 'text-end text-muted';
         const sr = t.staleRunning || 0;
-        tr.cells[6].textContent = sr > 0 ? `${t.running}+${sr} yarım / ${t.totalPartitions}` : `${t.running}/${t.totalPartitions}`;
+        tr.cells[6].textContent = t.totalPartitions > 0
+            ? (sr > 0 ? `${t.running}+${sr} yarım / ${t.totalPartitions}` : `${t.running}/${t.totalPartitions}`)
+            : '—';
         if (sr > 0) tr.cells[6].title = `${sr} partition checkpoint’te Running; migration run şu an aktif değil.`;
         else tr.cells[6].title = '';
+        tr.cells[7].className = 'text-end text-nowrap';
+        if (!lastEngineRunning && (st === 'Failed' || st === 'Pending' || st === 'Interrupted')) {
+            const safeName = String(t.tableName).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const label = st === 'Failed' ? 'Yeniden dene' : 'Devam';
+            const icon = st === 'Failed' ? 'fa-redo' : 'fa-play';
+            tr.cells[7].innerHTML =
+                `<button type="button" class="btn btn-outline-${st === 'Failed' ? 'warning' : 'primary'} btn-sm py-0 px-1" ` +
+                `title="${label}: sadece ${escapeHtml(String(t.tableName))}" ` +
+                `onclick="continueTableEngine('${safeName}', '${st}')">` +
+                `<i class="fas ${icon}"></i><span class="d-none d-lg-inline ms-1">${label}</span></button>`;
+        } else {
+            tr.cells[7].innerHTML = '';
+        }
         frag.appendChild(tr);
     }
     tbody.replaceChildren(frag);
@@ -341,17 +408,14 @@ async function refreshDashboardFromHub() {
 }
 
 connection.on("UpdateSummary", (summary) => {
-    console.log('[SignalR] UpdateSummary - Source:', summary?.totalRowsSource, 'Loaded:', summary?.totalRowsLoaded);
     updateOverallProgress(summary);
 });
 
 connection.on("UpdatePartitions", (partitions) => {
-    console.log('[SignalR] UpdatePartitions - Count:', partitions?.length);
     requestAnimationFrame(() => updatePartitionGrid(partitions));
 });
 
 connection.on("UpdateEvents", (events) => {
-    console.log('[SignalR] UpdateEvents - Count:', events?.length);
     appendToLogStream(events);
 });
 
@@ -395,12 +459,28 @@ if (document.readyState === 'loading') {
         checkEngineStatus();
         startEngineStatusMonitoring();
         loadRecentProfiles();
+        setupPartitionCollapseToggle();
     });
 } else {
     // DOM already loaded
     checkEngineStatus();
     startEngineStatusMonitoring();
     loadRecentProfiles();
+    setupPartitionCollapseToggle();
+}
+
+function setupPartitionCollapseToggle() {
+    const collapse = document.getElementById('partitionProgressCollapse');
+    const icon = document.querySelector('.partition-collapse-icon');
+    if (!collapse || !icon) return;
+    collapse.addEventListener('show.bs.collapse', () => {
+        icon.classList.remove('fa-chevron-right');
+        icon.classList.add('fa-chevron-down');
+    });
+    collapse.addEventListener('hide.bs.collapse', () => {
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-right');
+    });
 }
 
 // Load recent connection profiles
@@ -496,13 +576,60 @@ function updateOverallProgress(summary) {
     document.getElementById('noMigrationAlert').classList.add('d-none');
     document.getElementById('dashboardContent').classList.remove('d-none');
 
+    if (Array.isArray(summary.configuredTables) && summary.configuredTables.length) {
+        _lastConfiguredTables = summary.configuredTables;
+    }
+
     // Tablo sayıları (sunucu: partition satırı değil, tablo bazında)
-    document.getElementById('totalTables').textContent = formatNumber(summary.totalTables);
+    const displayTotalTables = Math.max(
+        Number(summary.totalTables || 0),
+        _lastConfiguredTables.length || 0
+    );
+    document.getElementById('totalTables').textContent = formatNumber(displayTotalTables);
     document.getElementById('completedTables').textContent = formatNumber(summary.completedTables);
     document.getElementById('runningTables').textContent = formatNumber(summary.runningTables);
     const pendingEl = document.getElementById('pendingTables');
     if (pendingEl) pendingEl.textContent = formatNumber(summary.pendingTables);
     document.getElementById('failedTables').textContent = formatNumber(summary.failedTables);
+
+    // Yeniden dene / devam: motor idle ve bekleyen veya hatalı tablo varken
+    const retryBanner = document.getElementById('migrationRetryBanner');
+    const retryDetail = document.getElementById('migrationRetryBannerDetail');
+    const retryTitle = document.getElementById('migrationRetryBannerTitle');
+    const failedN = Number(summary.failedTables || 0);
+    const pendingN = Number(summary.pendingTables || 0);
+    const stLower = String(summary.status || '').toLowerCase();
+    const showRetry = !lastEngineRunning
+        && (failedN > 0 || pendingN > 0)
+        && stLower !== 'done'
+        && stLower !== 'completed';
+    window._lastFailedTableCount = failedN;
+    window._lastPendingTableCount = pendingN;
+    if (retryBanner) {
+        retryBanner.classList.toggle('d-none', !showRetry);
+        if (retryDetail && showRetry) {
+            const parts = [];
+            if (failedN > 0) parts.push(`${formatNumber(failedN)} hatalı`);
+            if (pendingN > 0) parts.push(`${formatNumber(pendingN)} bekleyen`);
+            retryDetail.textContent = parts.join(' · ') + ' — satırdaki Devam / Yeniden dene ile tek tablo da çalıştırılabilir.';
+        }
+        if (retryTitle && showRetry) {
+            retryTitle.textContent = failedN > 0 && pendingN > 0
+                ? 'Bekleyen / hatalı tablo var.'
+                : failedN > 0 ? 'Hatalı tablo aktarımı var.' : 'Bekleyen tablo var.';
+        }
+        const resumePendingBtn = document.getElementById('resumePendingBtn');
+        resumePendingBtn?.classList.toggle('d-none', !(pendingN > 0));
+    }
+    const retryBtn = document.getElementById('retryEngineBtn');
+    const idleRetryBtn = document.getElementById('idleRetryEngineBtn');
+    if (!lastEngineRunning) {
+        retryBtn?.classList.toggle('d-none', failedN <= 0);
+        idleRetryBtn?.classList.toggle('d-none', failedN <= 0);
+    } else {
+        retryBtn?.classList.add('d-none');
+        idleRetryBtn?.classList.add('d-none');
+    }
 
     const rowLine = document.getElementById('summaryTableRowLine');
     if (rowLine) {
@@ -574,9 +701,25 @@ function updateOverallProgress(summary) {
     const elapsed = typeof elapsedRaw === 'string'
         ? formatDuration(elapsedRaw)
         : formatDuration(String(elapsedRaw ?? ''));
-    document.getElementById('elapsedTime').textContent = elapsed;
 
-    const throughput = formatNumber(Math.round(summary.currentRowsPerSecond));
+    const currentStatusEarly = String(summary.status || '').trim().toLowerCase();
+    const isTerminalEarly = currentStatusEarly === 'done' || currentStatusEarly === 'completed'
+        || currentStatusEarly === 'failed' || currentStatusEarly === 'stopped';
+    if (_frozenElapsedRunId !== summary.runId) {
+        _frozenElapsedText = null;
+        _frozenElapsedRunId = summary.runId;
+    }
+    if (isTerminalEarly) {
+        if (!_frozenElapsedText) _frozenElapsedText = elapsed;
+        document.getElementById('elapsedTime').textContent = _frozenElapsedText;
+    } else {
+        _frozenElapsedText = null;
+        document.getElementById('elapsedTime').textContent = elapsed;
+    }
+
+    const throughput = isTerminalEarly
+        ? '0'
+        : formatNumber(Math.round(summary.currentRowsPerSecond));
     document.getElementById('throughput').textContent = throughput + ' satır/sn';
 
     document.getElementById('migrationStatus').textContent = formatMigrationStatusLabel(summary.status);
@@ -621,7 +764,8 @@ function updateOverallProgress(summary) {
     }
 
     const currentStatus = String(summary.status || '').trim().toLowerCase();
-    lastMigrationSummaryActive = currentStatus === 'running';
+    // Motor fiilen çalışmıyorsa checkpoint RUNNING kalsa bile UI'yi "aktif" sanma (donmuş görünüm)
+    lastMigrationSummaryActive = currentStatus === 'running' && lastEngineRunning;
     const isTerminalDoneNow = currentStatus === 'done' || currentStatus === 'completed';
 
     // Tamamlanma banner'ı — ilk kez done/completed geçişinde göster
@@ -677,9 +821,9 @@ function updateOverallProgress(summary) {
         }
     }
 
+    // Partition/table grid: summary tick'te sadece hücre güncelle; full rebuild UpdatePartitions'ta
     if (lastPartitionListRaw.length) {
         updatePartitionParallelSummary(lastPartitionListRaw);
-        updatePartitionParallelList(lastPartitionListRaw);
         renderTableProgress(lastPartitionListRaw);
         const tbody = document.getElementById('partitionGrid');
         if (tbody) {
@@ -864,6 +1008,20 @@ function updatePartitionGrid(partitions) {
     tbody.replaceChildren(frag);
 }
 
+/** Dedupe keys for log stream — hub polls re-send the same progress_events rows. */
+const _seenLogEventKeys = new Set();
+
+function progressEventKey(evt) {
+    const ts = evt.timestamp ?? evt.Timestamp ?? '';
+    const tableName = evt.tableName ?? evt.TableName ?? '';
+    const phase = evt.phase ?? evt.Phase ?? '';
+    const message = evt.message ?? evt.Message ?? '';
+    const status = evt.status ?? evt.Status ?? '';
+    const partitionKey = evt.partitionKey ?? evt.PartitionKey ?? '';
+    const rows = evt.rowsProcessed ?? evt.RowsProcessed ?? '';
+    return `${ts}|${tableName}|${partitionKey}|${phase}|${status}|${rows}|${message}`;
+}
+
 function appendToLogStream(events) {
     const logStream = document.getElementById('logStream');
     
@@ -874,9 +1032,22 @@ function appendToLogStream(events) {
     const firstLoad = logStream.children.length === 1 && logStream.children[0].classList.contains('text-muted');
     if (firstLoad) {
         logStream.innerHTML = '';
+        _seenLogEventKeys.clear();
     }
 
-    events.reverse().forEach(evt => {
+    // API returns newest-first; keep that order when prepending
+    const fresh = [];
+    for (const evt of events) {
+        const key = progressEventKey(evt);
+        if (_seenLogEventKeys.has(key)) continue;
+        _seenLogEventKeys.add(key);
+        fresh.push(evt);
+    }
+    if (!fresh.length) return;
+
+    // Newest first in stream: insert in reverse so first of `fresh` ends on top
+    for (let i = fresh.length - 1; i >= 0; i--) {
+        const evt = fresh[i];
         const logEntry = document.createElement('div');
         logEntry.className = 'log-entry';
 
@@ -893,6 +1064,7 @@ function appendToLogStream(events) {
 
         logEntry.classList.add(levelClass);
         logEntry.dataset.level = levelClass.replace('log-', '');
+        logEntry.dataset.eventKey = progressEventKey(evt);
 
         const timestamp = ts ? new Date(ts).toLocaleTimeString() : '';
         const table = tableName ? `[${tableName}] ` : '';
@@ -911,10 +1083,15 @@ function appendToLogStream(events) {
         }
         
         logStream.insertBefore(logEntry, logStream.firstChild);
-    });
+    }
 
     while (logStream.children.length > 100) {
-        logStream.removeChild(logStream.lastChild);
+        const last = logStream.lastChild;
+        if (last?.dataset?.eventKey) _seenLogEventKeys.delete(last.dataset.eventKey);
+        logStream.removeChild(last);
+    }
+    while (_seenLogEventKeys.size > 200) {
+        _seenLogEventKeys.delete(_seenLogEventKeys.values().next().value);
     }
 
     if (autoScroll) {
@@ -1024,6 +1201,241 @@ function engineStartButtonHtml() {
 
 function engineStopButtonHtml() {
     return '<i class="fas fa-stop"></i><span class="d-none d-md-inline ms-1">Durdur</span>';
+}
+
+function engineRetryButtonHtml() {
+    return '<i class="fas fa-redo"></i><span class="d-none d-md-inline ms-1">Yeniden dene</span>';
+}
+
+/** Per-table continue: Pending/Interrupted → continue-tables; Failed → retry-failed */
+async function continueTableEngine(tableName, statusHint) {
+    const name = String(tableName || '').trim();
+    if (!name) return;
+    const failed = String(statusHint || '').toLowerCase() === 'failed';
+    if (failed) {
+        await retryMigrationEngine([name]);
+        return;
+    }
+    await launchScopedEngine({
+        endpoint: '/api/engine/continue-tables',
+        tables: [name],
+        confirmTitle: `${name} devam etsin mi?`,
+        confirmHtml: `Yalnızca <code>${escapeHtml(name)}</code> aktarılacak (Pending/Interrupted partition’lar).`,
+        actionLabel: 'Devam'
+    });
+}
+
+/** Continue all currently Pending tables from the table grid */
+async function continuePendingTables() {
+    const names = window._lastPendingTableNames || [];
+    if (!names.length) {
+        showEngineAlert('warning', 'Bekleyen tablo bulunamadı', { group: 'engine-retry', autoHideMs: 8000 });
+        return;
+    }
+    await launchScopedEngine({
+        endpoint: '/api/engine/continue-tables',
+        tables: names,
+        confirmTitle: 'Bekleyen tablolara devam?',
+        confirmHtml: `${names.length} tablo: <code>${names.map(escapeHtml).join(', ')}</code>`,
+        actionLabel: 'Devam'
+    });
+}
+
+async function launchScopedEngine({ endpoint, tables, confirmTitle, confirmHtml, actionLabel }) {
+    const btn = document.getElementById('retryEngineBtn');
+    const statusBadge = document.getElementById('engineStatus');
+
+    if (typeof Swal !== 'undefined') {
+        const r = await Swal.fire({
+            icon: 'question',
+            title: confirmTitle,
+            html: `${confirmHtml}<br><small class="text-muted">Motor <code>${escapeHtml(endpoint.replace('/api/engine/', '--'))}</code> ile başlar.</small>`,
+            showCancelButton: true,
+            confirmButtonText: actionLabel || 'Başlat',
+            cancelButtonText: 'İptal',
+            background: '#212529',
+            color: '#f8f9fa',
+            confirmButtonColor: '#0d6efd',
+            cancelButtonColor: '#6c757d',
+        });
+        if (!r.isConfirmed) return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span><span class="d-none d-md-inline ms-1">Hazırlanıyor…</span>';
+    }
+    if (statusBadge) {
+        statusBadge.className = 'badge rounded-pill bg-warning text-dark';
+        statusBadge.textContent = 'Continue…';
+    }
+    setEngineStatusDetail(`${tables.length} tablo…`, false);
+
+    try {
+        const st = await fetch('/api/engine/status').then((x) => x.json());
+        if (st.status === 'running') {
+            showEngineAlert('info', 'Çalışan motor durduruluyor…', { group: 'engine-retry' });
+            await fetch('/api/engine/stop', { method: 'POST' });
+            await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+
+        // Prefer existing exe; build only if needed (avoids UI hang)
+        showEngineAlert('info', 'Migration Engine hazırlanıyor…', { group: 'engine-retry' });
+        const buildResponse = await fetch('/api/engine/build', { method: 'POST' });
+        const buildResult = await buildResponse.json();
+        if (!buildResult.success) {
+            throw new Error('Build başarısız: ' + (buildResult.error || ''));
+        }
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tables })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || data.message || 'Başlatma başarısız');
+        }
+
+        if (statusBadge) {
+            statusBadge.className = 'badge rounded-pill bg-success';
+            statusBadge.textContent = 'Çalışıyor';
+        }
+        setEngineStatusDetail(data.pid != null ? `PID ${data.pid}` : 'running', false);
+        document.getElementById('startEngineBtn')?.classList.add('d-none');
+        document.getElementById('stopEngineBtn')?.classList.remove('d-none');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = engineRetryButtonHtml();
+            btn.classList.add('d-none');
+        }
+        document.getElementById('idleRetryEngineBtn')?.classList.add('d-none');
+        document.getElementById('migrationRetryBanner')?.classList.add('d-none');
+        document.getElementById('migrationFatalBanner')?.classList.add('d-none');
+
+        showEngineAlert('success', `✅ Devam başladı (${tables.join(', ')}) PID: ${data.pid}`, {
+            group: 'engine-retry',
+            autoHideMs: 120_000
+        });
+        lastEngineRunning = true;
+        updateIdleCard();
+        _frozenElapsedText = null;
+        _prevWasDone = false;
+    } catch (error) {
+        console.error('Continue failed:', error);
+        showEngineAlert('danger', `❌ Devam başarısız: ${error.message}`, { group: 'engine-retry' });
+        if (statusBadge) {
+            statusBadge.className = 'badge rounded-pill bg-danger';
+            statusBadge.textContent = 'Hata';
+        }
+        setEngineStatusDetail(error.message || '', true);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = engineRetryButtonHtml();
+        }
+    }
+}
+
+async function retryMigrationEngine(tableNames) {
+    const btn = document.getElementById('retryEngineBtn');
+    const statusBadge = document.getElementById('engineStatus');
+    const tables = Array.isArray(tableNames)
+        ? tableNames.filter((t) => t && String(t).trim())
+        : [];
+    const scopeHtml = tables.length
+        ? `Yalnızca <code>${tables.map((t) => escapeHtml(String(t))).join(', ')}</code> yeniden denenecek.`
+        : 'Yalnızca <strong>hata alan tablolar</strong> yeniden denenecek; tamamlanan / hatasız bekleyen tablolara dokunulmaz.';
+
+    if (typeof Swal !== 'undefined') {
+        const r = await Swal.fire({
+            icon: 'question',
+            title: 'Hatalı tablolar yeniden denensin mi?',
+            html: `${scopeHtml}<br><small class="text-muted">Motor <code>--retry-failed</code> ile başlar. Paralel ayarlar güncel appsettings’ten okunur.</small>`,
+            showCancelButton: true,
+            confirmButtonText: 'Yeniden dene',
+            cancelButtonText: 'İptal',
+            background: '#212529',
+            color: '#f8f9fa',
+            confirmButtonColor: '#ffc107',
+            cancelButtonColor: '#6c757d',
+        });
+        if (!r.isConfirmed) return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span><span class="d-none d-md-inline ms-1">Hazırlanıyor…</span>';
+    }
+    if (statusBadge) {
+        statusBadge.className = 'badge rounded-pill bg-warning text-dark';
+        statusBadge.textContent = 'Retry…';
+    }
+    setEngineStatusDetail(tables.length ? `--retry-failed (${tables.length} tablo)` : '--retry-failed…', false);
+
+    try {
+        const st = await fetch('/api/engine/status').then((x) => x.json());
+        if (st.status === 'running') {
+            showEngineAlert('info', 'Çalışan motor durduruluyor…', { group: 'engine-retry' });
+            await fetch('/api/engine/stop', { method: 'POST' });
+            await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+
+        showEngineAlert('info', 'Migration Engine hazırlanıyor…', { group: 'engine-retry' });
+        const buildResponse = await fetch('/api/engine/build', { method: 'POST' });
+        const buildResult = await buildResponse.json();
+        if (!buildResult.success) {
+            throw new Error('Build başarısız: ' + (buildResult.error || ''));
+        }
+
+        if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span><span class="d-none d-md-inline ms-1">Başlatılıyor…</span>';
+        const response = await fetch('/api/engine/retry-failed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tables.length ? { tables } : {})
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || data.message || 'Retry-failed başarısız');
+        }
+
+        if (statusBadge) {
+            statusBadge.className = 'badge rounded-pill bg-success';
+            statusBadge.textContent = 'Çalışıyor';
+        }
+        setEngineStatusDetail(data.pid != null ? `PID ${data.pid} (retry-failed)` : 'retry-failed', false);
+
+        document.getElementById('startEngineBtn')?.classList.add('d-none');
+        document.getElementById('stopEngineBtn')?.classList.remove('d-none');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = engineRetryButtonHtml();
+            btn.classList.add('d-none');
+        }
+        document.getElementById('idleRetryEngineBtn')?.classList.add('d-none');
+        document.getElementById('migrationRetryBanner')?.classList.add('d-none');
+
+        const scopeMsg = tables.length ? ` (${tables.join(', ')})` : '';
+        showEngineAlert('success', `✅ Hatalı tablo yeniden denemesi başladı${scopeMsg} (PID: ${data.pid})`, {
+            group: 'engine-retry',
+            autoHideMs: 120_000
+        });
+        lastEngineRunning = true;
+        updateIdleCard();
+        _frozenElapsedText = null;
+        _prevWasDone = false;
+    } catch (error) {
+        console.error('Yeniden deneme başarısız:', error);
+        showEngineAlert('danger', `❌ Yeniden deneme başarısız: ${error.message}`, { group: 'engine-retry' });
+        if (statusBadge) {
+            statusBadge.className = 'badge rounded-pill bg-danger';
+            statusBadge.textContent = 'Hata';
+        }
+        setEngineStatusDetail('', false);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = engineRetryButtonHtml();
+        }
+    }
 }
 
 async function startMigrationEngine() {
@@ -1165,6 +1577,8 @@ async function checkEngineStatus() {
         const response = await fetch('/api/engine/status');
         const data = await response.json();
         
+        const retryBtn = document.getElementById('retryEngineBtn');
+
         if (data.status === 'running') {
             statusBadge.className = 'badge rounded-pill bg-success';
             statusBadge.textContent = 'Çalışıyor';
@@ -1180,6 +1594,9 @@ async function checkEngineStatus() {
             
             startBtn.classList.add('d-none');
             stopBtn.classList.remove('d-none');
+            retryBtn?.classList.add('d-none');
+            document.getElementById('idleRetryEngineBtn')?.classList.add('d-none');
+            document.getElementById('migrationRetryBanner')?.classList.add('d-none');
 
             lastEngineRunning = true;
             updateIdleCard();
@@ -1191,6 +1608,29 @@ async function checkEngineStatus() {
             updateIdleCard();
             startBtn.classList.remove('d-none');
             stopBtn.classList.add('d-none');
+            const hasFailed = Number(window._lastFailedTableCount || 0) > 0;
+            retryBtn?.classList.toggle('d-none', !hasFailed);
+            document.getElementById('idleRetryEngineBtn')?.classList.toggle('d-none', !hasFailed);
+
+            const fatalBanner = document.getElementById('migrationFatalBanner');
+            const fatalDetail = document.getElementById('migrationFatalBannerDetail');
+            const fatalText = data.lastFatalError || data.lastExitMessage || null;
+            const showFatal = !!(data.lastFatalError || (data.lastExitCode != null && data.lastExitCode !== 0));
+            if (fatalBanner) {
+                fatalBanner.classList.toggle('d-none', !showFatal);
+                if (fatalDetail && showFatal) {
+                    fatalDetail.textContent = fatalText
+                        || `Exit code: ${data.lastExitCode}`;
+                }
+            }
+            if (showFatal) {
+                setEngineStatusDetail(
+                    data.lastExitCode != null
+                        ? `exit ${data.lastExitCode}` + (data.lastFatalError ? ` · ${String(data.lastFatalError).slice(0, 80)}` : '')
+                        : String(data.lastFatalError || '').slice(0, 100),
+                    true
+                );
+            }
             
             if (!data.hasConfiguration) {
                 setEngineStatusDetail('appsettings yok — Wizard’ı açın', true);

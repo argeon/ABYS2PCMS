@@ -1,0 +1,164 @@
+/* ============================================================
+   FILE : prodEnergy/90_afl_frk/91_afl_frk_compare_log.sql
+   FAZ  : B10 standalone — AFL (master) vs energy acik borc FRK + LOG
+   Grain: FATURAID = CS_ACCOUNT.ID = energy.ABYS_ACCOUNT_ID
+   Onkosul:
+     - izgazMGR.dbo.LS_AFL_OPEN_DEBT (Oracle 50 dump)
+     - energy LS_005_01_INVOICE + PAYTRANS (borc PT) yuklu
+   ============================================================ */
+USE energy;
+GO
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET QUOTED_IDENTIFIER ON;
+
+DECLARE @Eps       DECIMAL(18,2) = 0.02;
+DECLARE @OnlyMig   BIT = 1;          -- 1 = sadece MIG_IN_SCOPE=1 (emanet 14 haric)
+DECLARE @RunId     UNIQUEIDENTIFIER = NEWID();
+DECLARE @AsOf      DATE;
+DECLARE @Msg       NVARCHAR(400);
+
+IF OBJECT_ID('izgazMGR.dbo.LS_AFL_OPEN_DEBT', 'U') IS NULL
+BEGIN
+    RAISERROR('izgazMGR.dbo.LS_AFL_OPEN_DEBT yok. Once Oracle 50 CTAS + dump.', 16, 1);
+    RETURN;
+END
+
+SELECT TOP (1) @AsOf = TRY_CAST(AS_OF_DATE AS DATE)
+FROM izgazMGR.dbo.LS_AFL_OPEN_DEBT WITH (NOLOCK);
+
+IF OBJECT_ID('energy.dbo.MIG_AFL_FRK_LOG', 'U') IS NULL
+BEGIN
+    CREATE TABLE energy.dbo.MIG_AFL_FRK_LOG (
+        LOG_ID       BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        RUN_ID       UNIQUEIDENTIFIER NOT NULL,
+        AS_OF_DATE   DATE NULL,
+        SNAPSHOT_TS  DATETIME2(3) NOT NULL CONSTRAINT DF_AFL_FRK_TS DEFAULT (SYSDATETIME()),
+        FATURAID     BIGINT NOT NULL,
+        SOZLESME     BIGINT NULL,
+        AFL_BAL      DECIMAL(18,2) NULL,
+        EN_BAL       DECIMAL(18,2) NULL,
+        DELTA        DECIMAL(18,2) NULL,
+        KIND         VARCHAR(16) NOT NULL,  -- MATCH | AMT_DIFF | ONLY_AFL | ONLY_EN
+        TAKSIT       CHAR(1) NULL,
+        YT           VARCHAR(3) NULL,
+        MIG_IN_SCOPE TINYINT NULL,
+        NOTE         NVARCHAR(200) NULL
+    );
+    CREATE NONCLUSTERED INDEX IX_MIG_AFL_FRK_RUN
+        ON energy.dbo.MIG_AFL_FRK_LOG (RUN_ID, KIND)
+        INCLUDE (FATURAID, AFL_BAL, EN_BAL, DELTA);
+END
+
+SET @Msg = N'AFL FRK START run=' + CAST(@RunId AS NVARCHAR(36));
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+/* Energy acik bakiye — hesap grain (ABYS_ACCOUNT_ID)
+   Kural: IOCODE=0 faturalarda borc PT: PAYABLE - PAID (iptal/cancel haric)
+   Hesap = SUM(kalan) > 0 olanlar FRK'da ONLY_EN adayi
+*/
+IF OBJECT_ID('tempdb..#EN_OPEN') IS NOT NULL DROP TABLE #EN_OPEN;
+
+SELECT
+    inv.ABYS_ACCOUNT_ID AS FATURAID,
+    MAX(inv.ABYS_AGREEMENT_ID) AS SOZLESME,
+    CONVERT(DECIMAL(18,2), SUM(
+        CASE
+            WHEN ISNULL(pt.CANCELED, 0) = 0
+             AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+            THEN CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)
+               - CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
+            ELSE 0
+        END
+    )) AS EN_BAL
+INTO #EN_OPEN
+FROM energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+    ON pt.INVOICEREF = inv.LREF
+   AND ISNULL(pt.IOCODE, 0) = 0
+WHERE inv.ABYS_ACCOUNT_ID IS NOT NULL
+  AND ISNULL(inv.IOCODE, 0) = 0
+  AND ISNULL(inv.CANCELED, 0) = 0
+GROUP BY inv.ABYS_ACCOUNT_ID
+HAVING CONVERT(DECIMAL(18,2), SUM(
+        CASE
+            WHEN ISNULL(pt.CANCELED, 0) = 0
+             AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+            THEN CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)
+               - CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
+            ELSE 0
+        END
+    )) > @Eps;
+
+CREATE CLUSTERED INDEX CX_EN_OPEN ON #EN_OPEN (FATURAID);
+
+IF OBJECT_ID('tempdb..#AFL') IS NOT NULL DROP TABLE #AFL;
+SELECT
+    CAST(a.FATURAID AS BIGINT) AS FATURAID,
+    CAST(a.SOZLESME_HESABI AS BIGINT) AS SOZLESME,
+    CONVERT(DECIMAL(18,2), a.BALANCE) AS AFL_BAL,
+    LEFT(CAST(a.TAKSIT_DURUMU AS VARCHAR(1)), 1) AS TAKSIT,
+    LEFT(CAST(a.YT_DURUMU AS VARCHAR(3)), 3) AS YT,
+    CAST(ISNULL(a.MIG_IN_SCOPE, 1) AS TINYINT) AS MIG_IN_SCOPE
+INTO #AFL
+FROM izgazMGR.dbo.LS_AFL_OPEN_DEBT a WITH (NOLOCK)
+WHERE (@OnlyMig = 0 OR ISNULL(a.MIG_IN_SCOPE, 1) = 1);
+
+CREATE CLUSTERED INDEX CX_AFL ON #AFL (FATURAID);
+
+/* Full outer fark → log */
+INSERT INTO energy.dbo.MIG_AFL_FRK_LOG (
+    RUN_ID, AS_OF_DATE, FATURAID, SOZLESME,
+    AFL_BAL, EN_BAL, DELTA, KIND, TAKSIT, YT, MIG_IN_SCOPE, NOTE
+)
+SELECT
+    @RunId,
+    @AsOf,
+    COALESCE(a.FATURAID, e.FATURAID),
+    COALESCE(a.SOZLESME, e.SOZLESME),
+    a.AFL_BAL,
+    e.EN_BAL,
+    CONVERT(DECIMAL(18,2), ISNULL(e.EN_BAL, 0) - ISNULL(a.AFL_BAL, 0)) AS DELTA,
+    CASE
+        WHEN a.FATURAID IS NULL THEN 'ONLY_EN'
+        WHEN e.FATURAID IS NULL THEN 'ONLY_AFL'
+        WHEN ABS(ISNULL(e.EN_BAL, 0) - ISNULL(a.AFL_BAL, 0)) <= @Eps THEN 'MATCH'
+        ELSE 'AMT_DIFF'
+    END AS KIND,
+    a.TAKSIT,
+    a.YT,
+    a.MIG_IN_SCOPE,
+    CASE
+        WHEN a.FATURAID IS NULL THEN N'Energy acik, AFL yok'
+        WHEN e.FATURAID IS NULL THEN N'AFL acik, energy kalan yok/0'
+        WHEN ABS(ISNULL(e.EN_BAL, 0) - ISNULL(a.AFL_BAL, 0)) <= @Eps THEN NULL
+        ELSE N'Bakiye farki'
+    END
+FROM #AFL a
+FULL OUTER JOIN #EN_OPEN e ON e.FATURAID = a.FATURAID;
+
+/* Ozet */
+SELECT
+    KIND,
+    COUNT(*) AS CNT,
+    SUM(AFL_BAL) AS AFL_SUM,
+    SUM(EN_BAL) AS EN_SUM,
+    SUM(DELTA) AS DELTA_SUM
+FROM energy.dbo.MIG_AFL_FRK_LOG WITH (NOLOCK)
+WHERE RUN_ID = @RunId
+GROUP BY KIND
+ORDER BY KIND;
+
+SELECT TOP (50)
+    FATURAID, SOZLESME, AFL_BAL, EN_BAL, DELTA, KIND, TAKSIT, YT, NOTE
+FROM energy.dbo.MIG_AFL_FRK_LOG WITH (NOLOCK)
+WHERE RUN_ID = @RunId
+  AND KIND <> 'MATCH'
+ORDER BY ABS(ISNULL(DELTA, 0)) DESC, KIND;
+
+SET @Msg = N'AFL FRK DONE run=' + CAST(@RunId AS NVARCHAR(36))
+    + N' | incele: SELECT * FROM energy.dbo.MIG_AFL_FRK_LOG WHERE RUN_ID='''
+    + CAST(@RunId AS NVARCHAR(36)) + N'''';
+RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+GO

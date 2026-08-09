@@ -30,6 +30,7 @@ public static class CheckpointSchema
     // Mevcut DB'lere kolon eklemek için migration SQL'leri
     public const string MigrateAddStartPk = "ALTER TABLE table_checkpoints ADD COLUMN start_pk INTEGER;";
     public const string MigrateAddEndPk   = "ALTER TABLE table_checkpoints ADD COLUMN end_pk INTEGER;";
+    public const string MigrateAddRunEndTime = "ALTER TABLE migration_runs ADD COLUMN end_time TEXT;";
 
     public const string CreateProgressEventsTable = @"
         CREATE TABLE IF NOT EXISTS progress_events (

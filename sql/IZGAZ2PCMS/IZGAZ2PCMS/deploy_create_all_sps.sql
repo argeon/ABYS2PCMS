@@ -48,28 +48,12 @@ GO
 EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_IT_USER_MIGRATE', @Version = 1;
 GO
 
-PRINT '=== 120_REF_BANK__setup.sql [v1] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_BANK_SETUP', @ScriptNo = 120, @Version = 1;
-GO
-:r .\120_REF_BANK__setup.sql
-GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_BANK_SETUP', @Version = 1;
-GO
-
-PRINT '=== 121_REF_BANK__migrate.sql [v1] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_BANK_MIGRATE', @ScriptNo = 121, @Version = 1;
+PRINT '=== 121_REF_BANK__migrate.sql [v2] ===';
+EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_BANK_MIGRATE', @ScriptNo = 121, @Version = 2;
 GO
 :r .\121_REF_BANK__migrate.sql
 GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_BANK_MIGRATE', @Version = 1;
-GO
-
-PRINT '=== 122_REF_BANK__post.sql [v1] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_BANK_POST', @ScriptNo = 122, @Version = 1;
-GO
-:r .\122_REF_BANK__post.sql
-GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_BANK_POST', @Version = 1;
+EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_BANK_MIGRATE', @Version = 2;
 GO
 
 PRINT '=== 130_REF_TARIFF__setup.sql [v1] ===';
@@ -96,20 +80,20 @@ GO
 EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_TARIFF_WIRE', @Version = 1;
 GO
 
-PRINT '=== 140_REF_FUID__setup.sql [v2] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_FUID_SETUP', @ScriptNo = 140, @Version = 2;
+PRINT '=== 140_REF_FUID__setup.sql [v4] ===';
+EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_FUID_SETUP', @ScriptNo = 140, @Version = 4;
 GO
 :r .\140_REF_FUID__setup.sql
 GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_FUID_SETUP', @Version = 2;
+EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_FUID_SETUP', @Version = 4;
 GO
 
-PRINT '=== 141_REF_FUID__migrate.sql [v1] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_FUID_MIGRATE', @ScriptNo = 141, @Version = 1;
+PRINT '=== 141_REF_FUID__migrate.sql [v2] ===';
+EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'REF_FUID_MIGRATE', @ScriptNo = 141, @Version = 2;
 GO
 :r .\141_REF_FUID__migrate.sql
 GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_FUID_MIGRATE', @Version = 1;
+EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'REF_FUID_MIGRATE', @Version = 2;
 GO
 
 PRINT '=== 200_MASTER_SUBSCR__setup.sql [v1] ===';
@@ -344,20 +328,20 @@ GO
 EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'READ_HHD_LOC_INV_TRAN_SETUP', @Version = 2;
 GO
 
-PRINT '=== 521_READ_HHD_LOC_INV_TRAN__migrate.sql [v3] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'READ_HHD_LOC_INV_TRAN_MIGRATE', @ScriptNo = 521, @Version = 3;
+PRINT '=== 521_READ_HHD_LOC_INV_TRAN__migrate.sql [v5] ===';
+EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'READ_HHD_LOC_INV_TRAN_MIGRATE', @ScriptNo = 521, @Version = 5;
 GO
 :r .\521_READ_HHD_LOC_INV_TRAN__migrate.sql
 GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'READ_HHD_LOC_INV_TRAN_MIGRATE', @Version = 3;
+EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'READ_HHD_LOC_INV_TRAN_MIGRATE', @Version = 5;
 GO
 
-PRINT '=== 530_WO_CS_APPOINTMENT__setup.sql [v2] ===';
-EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'WO_CS_APPOINTMENT_SETUP', @ScriptNo = 530, @Version = 2;
+PRINT '=== 530_WO_CS_APPOINTMENT__setup.sql [v4] ===';
+EXEC energy.dbo.SP_MIG_SCRIPT_ASSERT @ScriptId = 'WO_CS_APPOINTMENT_SETUP', @ScriptNo = 530, @Version = 4;
 GO
 :r .\530_WO_CS_APPOINTMENT__setup.sql
 GO
-EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'WO_CS_APPOINTMENT_SETUP', @Version = 2;
+EXEC energy.dbo.SP_MIG_SCRIPT_MARK_DEPLOYED @ScriptId = 'WO_CS_APPOINTMENT_SETUP', @Version = 4;
 GO
 
 PRINT '=== 531_WO_CS_APPOINTMENT__migrate.sql [v7] ===';

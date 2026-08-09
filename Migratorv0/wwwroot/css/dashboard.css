@@ -425,6 +425,18 @@ body:has(.dashboard-page) .navbar .nav-link:hover {
     border-bottom: 1px solid var(--border-color);
 }
 
+.dashboard-page .partition-collapse-icon {
+    width: 1rem;
+}
+
+.dashboard-page #partitionProgressToggle {
+    text-align: left;
+}
+
+.dashboard-page #partitionProgressToggle:hover {
+    opacity: 0.9;
+}
+
 .dashboard-page .partition-strip .strip-title {
     font-size: 0.72rem;
     font-weight: 600;

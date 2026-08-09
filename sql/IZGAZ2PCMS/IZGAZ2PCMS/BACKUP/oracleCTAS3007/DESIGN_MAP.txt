@@ -1,0 +1,51 @@
+================================================================================
+prodREADY — MAP / SRC_KEY TASARIMI
+================================================================================
+
+SRC_KEY format (VARCHAR2 80)
+----------------------------
+IADE_INV|{EKS_ACTION_ID}
+IADE_IL|{EKS_ACTION_ID}|{SOURCE_LINE_LREF}
+IADE_PT|{EKS_ACTION_ID}                 (= IADE_INV key; PT LREF=INV LREF energy'de)
+KISMI_IL|{INCOME_ID}
+KISMI_PT|{MAIN_LREF}
+PAY_PT|{PAY_LREF}|{MAIN_LREF}           (ALLOC her satir; RN=1 icin LREF_HINT=PAY_LREF)
+CANCEL_PAY|{EKS_ACTION_ID}
+CANCEL_REV|{EKS_ACTION_ID}
+TAH_INV|{PAY_LREF}
+
+LREF_HINT (NUMBER 12, nullable)
+-------------------------------
+- MAIN / gercek SMS ID kullanilabiliyorsa (PAY_ID, INCOME_ID, MAIN ACTION.ID)
+  → energy IDENTITY_INSERT ile ayni LREF istenebilir
+- Sentetik ihtiyac varsa NULL → energy IDENTITY yeni LREF + MAP.ENERGY_LREF
+
+Wire alanlari (Oracle dump)
+---------------------------
+*_SRC_KEY kolonlari (ornek):
+  INVOICE_SRC_KEY, RETURN_TARGET_SRC_KEY, PARENT_SRC_KEY
+Energy WIRE fazinda:
+  UPDATE t SET INVOICEREF = m.ENERGY_LREF
+  FROM MAP m WHERE m.SRC_KEY = t.INVOICE_SRC_KEY
+
+LS_OV_ID_MAP kolonlari
+----------------------
+OV_KIND, SRC_KEY, LREF_HINT, PARENT_SRC_KEY, REF_MAIN_LREF,
+ABYS_AGREEMENT_ID, ABYS_ACCOUNT_ID, ABYS_ID_BUSINESS
+ENERGY_LREF → Oracle'da NULL; MSSQL INSERT sonrasi dolar
+
+INT tasma
+---------
+Sentetik 1.6B/2.11B/1.35B/1.8B YOK. Sadece dogal ID + IDENTITY.
+
+================================================================================
+oracleCTAS3007 ekleri (pilot)
+================================================================================
+O33  LS_INVOICE CLOSED/LASTPAIDDATE/BANKREF — DEBT_PAID + son odeme + balance~0
+O34  LS_OV_PAY_PT.PAID=PAYABLETOTAL + BANKREF/BANK_RECORD_REF/LASTPAIDDATE/XTYPE
+O56  LS_TAKSIT — tum INSTALLMENT_ID hesaplari (ACIK/KAPALI/IPTAL/FAZLA)
+O57  LS_INSTALLMENT_PLAN_PAY — ORDER_NUMBER=INST_NR, PAYMENT_DATE → PAID kaynagi
+O58  GATE: tablo/kolon + PAY_PAID_GAP + PAY_NO_XREF
+O11  NVL(acc.INSTALLMENT_ID, aa.INSTALLMENT_ID)
+O52  BANK_RECORD_REF ← BANK_RECEIPT_NUMBER
+================================================================================

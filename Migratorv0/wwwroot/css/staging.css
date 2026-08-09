@@ -193,3 +193,36 @@
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+.tahsilat-wizard .tahsilat-log {
+    max-height: 280px;
+    overflow: auto;
+    padding: 0.75rem 1rem;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+
+.tahsilat-wizard #stepList .list-group-item.active {
+    background: rgba(13, 110, 253, 0.25);
+    border-color: rgba(13, 110, 253, 0.45);
+}
+
+.tahsilat-wizard #summaryBox {
+    max-height: 160px;
+    overflow: auto;
+    font-size: 0.75rem;
+    color: #adb5bd;
+}
+
+.tahsilat-wizard #oneClickCard {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.08), rgba(13, 110, 253, 0.06));
+}
+
+.tahsilat-wizard #btnOneClickEnergy:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}

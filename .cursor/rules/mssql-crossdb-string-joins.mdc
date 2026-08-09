@@ -1,0 +1,40 @@
+---
+description: energy↔izgazMGR string join — tip hizala (varchar), COLLATE/CAST yasak
+globs: sql/**/*.sql
+alwaysApply: false
+---
+
+# MSSQL cross-DB string joins (energy ↔ izgazMGR)
+
+195'te collation **aynı** (`SQL_Latin1_General_CP1254_CI_AS`). Dump `nvarchar` getirebilir; energy `varchar`.
+
+## Tek seferlik çözüm
+
+Dump sonrası (veya map yeniden yüklemede):
+
+`prodREADY_ENERGY/00b_align_mgr_varchar.sql` → izgazMGR `LS_OV_*` join/text kolonları **VARCHAR** (energy mirror).
+
+Sonra bare join:
+
+```sql
+ON t.SRC_KEY = s.SRC_KEY
+WHERE s.SRC_KEY = @SRC
+```
+
+## Yasak
+
+```sql
+-- ❌ COLLATE — index öldürür
+ON t.SRC_KEY = s.SRC_KEY COLLATE DATABASE_DEFAULT
+
+-- ❌ CAST ile yama — geçici; 00b ALTER tercih et
+ON t.SRC_KEY = CAST(s.SRC_KEY AS VARCHAR(80))
+```
+
+## Kurallar
+
+1. Collation çakışması yoksa `COLLATE DATABASE_DEFAULT` kullanma.
+2. Tip farkını query-time CAST ile değil `00b_align_mgr_varchar.sql` ile çöz.
+3. `00_map_tables` / energy: `VARCHAR(80)` SRC_KEY, `VARCHAR(20)` OV_KIND.
+4. Dump sonrası: `00b_align` → `00_pre_indexes` (UX_LS_OV_ID_MAP_SRC / KIND / AGR).
+5. Full MAP sync'i tek MERGE ile 100M+ satırda yapma — batch + küçük blast radius.

@@ -47,8 +47,14 @@ migration_checkpoint.db
 # Local publish / verify artifacts
 publish/
 _build_verify/
+_artifacts/
+_tmp/
+_tmp_build*/
+Migratorv0/App_Data/tahsilat-pilot/
 
-# SQL tree backups (local snapshots)
+# SQL tree backups (local dated snapshots only — not the live BACKUP archive tree)
+sql/IZGAZ2PCMS/BACKUP/IZGAZ2PCMS_backup_*/
+sql/IZGAZ2PCMS/BACKUP/IZGAZ2PCMS_sql_backup_*/
 sql/IZGAZ2PCMS/IZGAZ2PCMS_backup_*/
 sql/IZGAZ2PCMS/IZGAZ2PCMS_sql_backup_*/
 

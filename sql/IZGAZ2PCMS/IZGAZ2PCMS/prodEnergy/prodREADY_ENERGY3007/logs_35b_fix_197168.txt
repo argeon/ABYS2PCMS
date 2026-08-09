@@ -1,0 +1,14 @@
+Changed database context to 'energy'.
+2026-08-03 14:31:30.7062643 | 35b FIX BANKREF AGR=197168
+UPDATED pt~113 tah=113 main=111 debtPt=112
+ok_bank     mismatch    n          
+----------- ----------- -----------
+        242           0         242
+dekont                                                                           sms_bank             want got_lref    got  vezne               
+-------------------------------------------------------------------------------- -------------------- ---- ----------- ---- --------------------
+4759871                                                                                            44 PTTB          17 PTTB                  544
+62245418012                                                                                        21 FINS           5 FINS                  521
+61809752912                                                                                        21 FINS           5 FINS                  521
+45334326234                                                                                        21 FINS           5 FINS                  521
+302202112282980892                                                                                 19 TEBK          11 TEBK                  519
+2026-08-03 14:31:30.9287951 | 35b FIX BANKREF DONE

@@ -287,26 +287,39 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Degree of Parallelism</label>
-                        <input type="number" class="form-control" id="parallelism" value="8" min="1" max="32">
-                        <small class="form-text text-muted">Number of parallel workers (recommended: 8)</small>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="oracleParallel">Oracle paralel (dilim)</label>
+                        <input type="number" class="form-control" id="oracleParallel" value="56" min="1" max="128">
+                        <small class="form-text text-muted">Tablo başına PK/ROWID dilim sayısı. Eşzamanlı tablo sayısı değildir.</small>
                     </div>
-                    
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="sqlMaxDop">SQL MAXDOP</label>
+                        <input type="number" class="form-control" id="sqlMaxDop" value="48" min="1" max="128">
+                        <small class="form-text text-muted">Tablo başına eşzamanlı partition yazıcı.</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="tableParallelism">Aktarım paket eşzamanlılığı</label>
+                        <input type="number" class="form-control" id="tableParallelism" value="2" min="1" max="32">
+                        <small class="form-text text-muted">Aynı anda kaç tablo/paket aktarılır. Varsayılan: 2</small>
+                    </div>
+                </div>
+
+                <div class="row">
                     <div class="col-md-6 mb-3">
                         <label class="form-label">Batch Size</label>
                         <input type="number" class="form-control" id="batchSize" value="50000" min="1000" max="100000" step="1000">
                         <small class="form-text text-muted">Rows per batch (recommended: 50000)</small>
                     </div>
-                </div>
-                
-                <div class="row">
                     <div class="col-md-6 mb-3">
                         <label class="form-label">Fetch Size (MB)</label>
                         <input type="number" class="form-control" id="fetchSize" value="50" min="10" max="200">
                         <small class="form-text text-muted">Oracle fetch buffer size</small>
                     </div>
                 </div>
+
+                <!-- Hidden legacy ids kept for profile load / scripts -->
+                <input type="hidden" id="parallelism" value="56">
+                <input type="hidden" id="partitionDegreeOfParallelism" value="48">
 
                 <hr class="my-4">
 
@@ -318,15 +331,13 @@
 
                     <div class="settings-option">
                         <div class="form-check form-switch settings-toggle mb-0">
-                            <input class="form-check-input" type="checkbox" id="parallelPartitionLoad" role="switch">
+                            <input class="form-check-input" type="checkbox" id="parallelPartitionLoad" role="switch" checked>
                         </div>
                         <div class="settings-content">
                             <label class="settings-label" for="parallelPartitionLoad">Aynı tablonun partition'larını paralel yükle</label>
-                            <div class="settings-desc">Büyük tablolarda bant genişliği daha iyi kullanılır; MSSQL yazma kilitlerine dikkat edin.</div>
-                            <div id="partitionParallelismGroup" style="display:none" class="settings-extra">
-                                <label class="settings-extra-label" for="partitionDegreeOfParallelism">Worker sayısı</label>
-                                <input type="number" class="form-control form-control-sm settings-extra-input" id="partitionDegreeOfParallelism" value="4" min="2" max="32">
-                                <span class="settings-extra-hint">tablo başına (önerilen: 4)</span>
+                            <div class="settings-desc">Açıkken SQL MAXDOP değeri kadar dilim eşzamanlı yazılır. Büyük tablolarda bant genişliği daha iyi kullanılır.</div>
+                            <div id="partitionParallelismGroup" class="settings-extra">
+                                <span class="settings-extra-hint">Worker sayısı = yukarıdaki <strong>SQL MAXDOP</strong></span>
                             </div>
                         </div>
                     </div>
@@ -509,9 +520,14 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-12">
-                            <p><strong>Tables to migrate:</strong></p>
-                            <p class="text-muted" id="summaryTables">-</p>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Oracle paralel (dilim):</strong> <span id="summaryOracleParallel" class="text-muted">56</span></p>
+                            <p class="mb-1"><strong>SQL MAXDOP:</strong> <span id="summarySqlMaxDop" class="text-muted">48</span></p>
+                            <p class="mb-0"><strong>Paket eşzamanlılığı:</strong> <span id="summaryTableParallelism" class="text-muted">2</span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Aktarılacak tablolar (<span id="summaryTableCount">0</span>):</strong></p>
+                            <div id="summaryTables" class="summary-tables-list text-muted small">-</div>
                         </div>
                     </div>
                 </div>

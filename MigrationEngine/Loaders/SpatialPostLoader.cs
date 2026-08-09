@@ -109,18 +109,62 @@ public class SpatialPostLoader
         var needsTransform = sourceSrid != targetSrid;
         var tableName = table.TableName;
 
+        if (needsTransform && sourceSrid <= 0)
+        {
+            var nulled = await NullOutPendingWktAsync(connection, tableName, wktColumn, targetColumn, null, null, ct);
+            Log.Warning(
+                "Spatial [{Table}].[{Column}]: source EPSG:{Source} invalid — {Count} WKT value(s) set to NULL (target stays NULL)",
+                tableName, targetColumn, sourceSrid, nulled);
+            return;
+        }
+
+        if (needsTransform)
+        {
+            try
+            {
+                WktCrsTransform.EnsureProjectionsAvailable(sourceSrid, targetSrid);
+            }
+            catch (Exception ex)
+            {
+                var nulled = await NullOutPendingWktAsync(connection, tableName, wktColumn, targetColumn, null, null, ct);
+                Log.Warning(ex,
+                    "Spatial [{Table}].[{Column}]: CRS EPSG:{Source}→EPSG:{Target} unavailable — {Count} WKT value(s) set to NULL",
+                    tableName, targetColumn, sourceSrid, targetSrid, nulled);
+                return;
+            }
+        }
+
+        // Web Mercator → WGS84 geography: set-based T-SQL (millions of POINT rows).
+        var useSqlWebMercator =
+            needsTransform
+            && sourceSrid == 3857
+            && targetSrid == 4326
+            && string.Equals(targetType, "geography", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrEmpty(pkColumn);
+
         Log.Information(
             "Converting [{Table}].[{Wkt}] → [{Target}] {TargetType} (EPSG:{Source} → EPSG:{Target}{Transform})",
             tableName, wktColumn, targetColumn, targetType, sourceSrid, targetSrid,
-            needsTransform ? ", DotSpatial reproject" : "");
+            useSqlWebMercator ? ", SQL WebMercator→WGS84" : needsTransform ? ", DotSpatial reproject" : "");
 
-        var totalConverted = needsTransform
-            ? await ConvertWktWithReprojectAsync(
+        long totalConverted;
+        if (useSqlWebMercator)
+        {
+            totalConverted = await ConvertWebMercatorPointWktToGeographyAsync(
+                connection, tableName, wktColumn, targetColumn, pkColumn!, ct);
+        }
+        else if (needsTransform)
+        {
+            totalConverted = await ConvertWktWithReprojectAsync(
                 connection, tableName, wktColumn, targetColumn, pkColumn,
-                targetType, sourceSrid, targetSrid, ct)
-            : await ConvertWktInBatchesAsync(
+                targetType, sourceSrid, targetSrid, ct);
+        }
+        else
+        {
+            totalConverted = await ConvertWktInBatchesAsync(
                 connection, tableName, wktColumn, targetColumn, pkColumn,
                 targetType, targetSrid, ct);
+        }
 
         Log.Information(
             "Converted {Rows} spatial value(s) [{Table}].[{Wkt}] → [{Target}]",
@@ -200,6 +244,135 @@ public class SpatialPostLoader
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    /// EPSG:3857 POINT WKT → geography 4326 via T-SQL (no DotSpatial per-row).
+    /// Non-POINT / unparsable WKT is nulled (target stays NULL).
+    /// </summary>
+    private static async Task<long> ConvertWebMercatorPointWktToGeographyAsync(
+        SqlConnection connection,
+        string tableName,
+        string wktColumn,
+        string targetColumn,
+        string pkColumn,
+        CancellationToken ct)
+    {
+        const int batchSize = 5000;
+        long total = 0;
+        long nulled = 0;
+        var batchNum = 0;
+
+        // Null non-POINT staging first (cannot use this fast path).
+        var nullNonPointSql = $"""
+            UPDATE [{tableName}]
+            SET [{wktColumn}] = NULL
+            WHERE [{wktColumn}] IS NOT NULL
+              AND [{targetColumn}] IS NULL
+              AND [{wktColumn}] NOT LIKE N'POINT (%'
+              AND [{wktColumn}] NOT LIKE N'POINT(%';
+            """;
+        await using (var nullCmd = new SqlCommand(nullNonPointSql, connection) { CommandTimeout = 0 })
+        {
+            var n = await nullCmd.ExecuteNonQueryAsync(ct);
+            if (n > 0)
+            {
+                nulled += n;
+                Log.Warning(
+                    "Spatial [{Table}].[{Column}]: {Count} non-POINT WKT set to NULL (SQL 3857→4326 path)",
+                    tableName, targetColumn, n);
+            }
+        }
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            batchNum++;
+
+            // Parse "POINT (x y)" / "POINT(x y)", convert WebMercator → WGS84, write geography.
+            var sql = $"""
+                ;WITH batch AS (
+                    SELECT TOP ({batchSize})
+                        [{pkColumn}] AS pk,
+                        [{wktColumn}] AS wkt
+                    FROM [{tableName}]
+                    WHERE [{wktColumn}] IS NOT NULL
+                      AND [{targetColumn}] IS NULL
+                      AND ([{wktColumn}] LIKE N'POINT (%' OR [{wktColumn}] LIKE N'POINT(%')
+                    ORDER BY [{pkColumn}]
+                ),
+                body AS (
+                    SELECT
+                        pk,
+                        REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(wkt)), N'POINT (', N''), N'POINT(', N''), N')', N''), N'  ', N' ') AS xy
+                    FROM batch
+                ),
+                xy AS (
+                    SELECT
+                        pk,
+                        TRY_CAST(LEFT(xy, CHARINDEX(N' ', xy + N' ') - 1) AS float) AS x,
+                        TRY_CAST(SUBSTRING(xy, CHARINDEX(N' ', xy + N' ') + 1, 100) AS float) AS y
+                    FROM body
+                    WHERE CHARINDEX(N' ', xy) > 0
+                ),
+                ll AS (
+                    SELECT
+                        pk,
+                        x,
+                        y,
+                        x / 6378137.0 * 180.0 / PI() AS lon,
+                        (ATAN(EXP(y / 6378137.0)) * 2.0 - PI() / 2.0) * 180.0 / PI() AS lat
+                    FROM xy
+                    WHERE x IS NOT NULL AND y IS NOT NULL
+                )
+                UPDATE t
+                SET [{targetColumn}] = geography::Point(ll.lat, ll.lon, 4326)
+                FROM [{tableName}] t
+                INNER JOIN ll ON t.[{pkColumn}] = ll.pk
+                WHERE ll.lat BETWEEN -90.0 AND 90.0
+                  AND ll.lon BETWEEN -180.0 AND 180.0
+                  AND t.[{targetColumn}] IS NULL;
+                """;
+
+            await using var cmd = new SqlCommand(sql, connection) { CommandTimeout = 0 };
+            var updated = await cmd.ExecuteNonQueryAsync(ct);
+            if (updated <= 0)
+            {
+                // Remaining pending POINT rows that failed parse / out of range → null WKT
+                var nullBadSql = $"""
+                    UPDATE [{tableName}]
+                    SET [{wktColumn}] = NULL
+                    WHERE [{wktColumn}] IS NOT NULL AND [{targetColumn}] IS NULL;
+                    """;
+                await using var badCmd = new SqlCommand(nullBadSql, connection) { CommandTimeout = 0 };
+                var bad = await badCmd.ExecuteNonQueryAsync(ct);
+                if (bad > 0)
+                {
+                    nulled += bad;
+                    Log.Warning(
+                        "Spatial [{Table}].[{Column}]: {Count} unconvertible WKT set to NULL after SQL 3857→4326",
+                        tableName, targetColumn, bad);
+                }
+                break;
+            }
+
+            total += updated;
+            if (batchNum == 1 || batchNum % 20 == 0 || updated < batchSize)
+            {
+                Log.Information(
+                    "Spatial SQL 3857→4326 batch {Batch}: +{Rows} → [{Table}].[{Column}] ({Total} total)",
+                    batchNum, updated, tableName, targetColumn, total);
+            }
+        }
+
+        if (nulled > 0)
+        {
+            Log.Warning(
+                "Spatial [{Table}].[{Column}]: SQL path finished — {Total} converted, {Nulled} WKT nulled",
+                tableName, targetColumn, total, nulled);
+        }
+
+        return total;
+    }
+
     private static async Task<long> ConvertWktWithReprojectAsync(
         SqlConnection connection,
         string tableName,
@@ -218,7 +391,7 @@ public class SpatialPostLoader
         }
 
         long total = 0;
-        long failed = 0;
+        long nulled = 0;
         var batchNum = 0;
 
         while (true)
@@ -255,19 +428,45 @@ public class SpatialPostLoader
                         transformed, targetType, targetSrid, ct);
                     total++;
                 }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("EPSG", StringComparison.OrdinalIgnoreCase))
+                {
+                    // CRS broken for whole column — null remaining WKT and stop.
+                    var bulk = await NullOutPendingWktAsync(
+                        connection, tableName, wktColumn, targetColumn, null, null, ct);
+                    nulled += bulk;
+                    Log.Warning(ex,
+                        "Spatial reproject CRS failed [{Table}] — {Count} pending WKT set to NULL (EPSG:{Source}→{Target})",
+                        tableName, bulk, sourceSrid, targetSrid);
+                    return total;
+                }
                 catch (Exception ex)
                 {
-                    failed++;
-                    Log.Warning(ex, "Spatial reproject failed [{Table}] PK={Pk}", tableName, pk);
+                    // Bad geometry / transform — accept row with NULL spatial + clear staging WKT.
+                    await NullOutPendingWktAsync(
+                        connection, tableName, wktColumn, targetColumn, pkColumn, pk, ct);
+                    nulled++;
+                    if (nulled <= 20 || nulled % 500 == 0)
+                    {
+                        Log.Warning(ex,
+                            "Spatial reproject failed [{Table}] PK={Pk} — WKT set to NULL ({Nulled} so far)",
+                            tableName, pk, nulled);
+                    }
                 }
             }
 
             if (batchNum == 1 || batchNum % 10 == 0 || rows.Count < DefaultBatchSize)
             {
                 Log.Information(
-                    "Spatial reproject batch {Batch}: {Rows} row(s) → [{Table}].[{Column}] ({Total} ok, {Failed} failed)",
-                    batchNum, rows.Count, tableName, targetColumn, total, failed);
+                    "Spatial reproject batch {Batch}: {Rows} row(s) → [{Table}].[{Column}] ({Total} ok, {Nulled} null)",
+                    batchNum, rows.Count, tableName, targetColumn, total, nulled);
             }
+        }
+
+        if (nulled > 0)
+        {
+            Log.Warning(
+                "Spatial [{Table}].[{Column}]: {Nulled} WKT value(s) nulled after reproject failure; {Total} converted",
+                tableName, targetColumn, nulled, total);
         }
 
         return total;
@@ -290,6 +489,7 @@ public class SpatialPostLoader
         var sql = $"SELECT [{wktColumn}] FROM [{tableName}] WHERE [{wktColumn}] IS NOT NULL AND [{targetColumn}] IS NULL";
 
         long total = 0;
+        long nulled = 0;
         await using var selectCmd = new SqlCommand(sql, connection) { CommandTimeout = 0 };
         await using var reader = await selectCmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
@@ -307,11 +507,64 @@ public class SpatialPostLoader
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Spatial reproject failed [{Table}] (no PK)", tableName);
+                await NullOutPendingWktAsync(
+                    connection, tableName, wktColumn, targetColumn, null, wkt, ct);
+                nulled++;
+                if (nulled <= 20 || nulled % 500 == 0)
+                    Log.Warning(ex, "Spatial reproject failed [{Table}] (no PK) — WKT set to NULL ({Nulled})", tableName, nulled);
             }
         }
 
         return total;
+    }
+
+    /// <summary>
+    /// Clears staging WKT (and leaves target NULL) when reproject/CRS conversion cannot succeed.
+    /// When <paramref name="pkColumn"/> + <paramref name="pkOrMatchWkt"/> are set, only that row is cleared.
+    /// When both null, all pending rows (wkt NOT NULL, target NULL) are cleared.
+    /// When pkColumn is null but pkOrMatchWkt is a string, match by WKT text.
+    /// </summary>
+    private static async Task<long> NullOutPendingWktAsync(
+        SqlConnection connection,
+        string tableName,
+        string wktColumn,
+        string targetColumn,
+        string? pkColumn,
+        object? pkOrMatchWkt,
+        CancellationToken ct)
+    {
+        string sql;
+        await using var cmd = new SqlCommand { Connection = connection, CommandTimeout = 0 };
+
+        if (!string.IsNullOrEmpty(pkColumn) && pkOrMatchWkt != null)
+        {
+            sql = $"""
+                UPDATE [{tableName}]
+                SET [{wktColumn}] = NULL, [{targetColumn}] = NULL
+                WHERE [{pkColumn}] = @pk;
+                """;
+            cmd.Parameters.AddWithValue("@pk", pkOrMatchWkt);
+        }
+        else if (pkOrMatchWkt is string matchWkt)
+        {
+            sql = $"""
+                UPDATE [{tableName}]
+                SET [{wktColumn}] = NULL, [{targetColumn}] = NULL
+                WHERE [{wktColumn}] = @matchWkt AND [{targetColumn}] IS NULL;
+                """;
+            cmd.Parameters.AddWithValue("@matchWkt", matchWkt);
+        }
+        else
+        {
+            sql = $"""
+                UPDATE [{tableName}]
+                SET [{wktColumn}] = NULL
+                WHERE [{wktColumn}] IS NOT NULL AND [{targetColumn}] IS NULL;
+                """;
+        }
+
+        cmd.CommandText = sql;
+        return await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private static async Task UpdateSpatialRowAsync(

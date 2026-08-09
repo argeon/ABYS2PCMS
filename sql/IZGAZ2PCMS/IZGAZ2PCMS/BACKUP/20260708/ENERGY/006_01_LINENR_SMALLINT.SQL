@@ -1,0 +1,34 @@
+/* prodREADY_ENERGY / 01 — LINENR TINYINT → SMALLINT (581 ONCESI zorunlu) */
+USE energy;
+GO
+SET NOCOUNT ON;
+
+IF COL_LENGTH('dbo.LS_005_01_INVLINES', 'LINENR') IS NULL
+BEGIN
+    RAISERROR('LS_005_01_INVLINES.LINENR yok', 16, 1);
+    RETURN;
+END
+
+DECLARE @t VARCHAR(50);
+SELECT @t = t.name
+FROM sys.columns c
+JOIN sys.types t ON t.user_type_id = c.user_type_id
+WHERE c.object_id = OBJECT_ID('dbo.LS_005_01_INVLINES') AND c.name = 'LINENR';
+
+IF @t IN ('tinyint')
+BEGIN
+    PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121) + ' | ALTER LINENR tinyint → smallint';
+    ALTER TABLE dbo.LS_005_01_INVLINES ALTER COLUMN LINENR SMALLINT NOT NULL;
+END
+ELSE
+    PRINT 'LINENR zaten ' + @t;
+
+/* ABYS_LINENR_SRC: 00_abys_columns.sql (idempotent yedek) */
+IF COL_LENGTH('dbo.LS_005_01_INVLINES', 'ABYS_LINENR_SRC') IS NULL
+BEGIN
+    ALTER TABLE dbo.LS_005_01_INVLINES ADD ABYS_LINENR_SRC SMALLINT NULL;
+    PRINT 'ABYS_LINENR_SRC eklendi (00_abys atlanmissa)';
+END
+
+PRINT '01_linenr_smallint OK';
+GO

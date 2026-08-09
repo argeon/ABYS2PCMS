@@ -1,4 +1,0 @@
-﻿measured_at=2026-07-23 12:49:52
-sqlcmd_pid=133880
-wall_sec=253
-note=613 after wire fix; counters flat during multi-min #INV_CANCEL/#INV scans

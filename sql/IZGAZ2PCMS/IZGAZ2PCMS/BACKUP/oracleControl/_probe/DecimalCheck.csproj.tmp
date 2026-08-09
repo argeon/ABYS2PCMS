@@ -1,0 +1,98 @@
+﻿using Oracle.ManagedDataAccess.Client;
+using System.Globalization;
+
+var cs = "User Id=SMS;Password=RepSmS26!IzGx;Data Source=172.16.1.201:1521/izgaz";
+var tables = new Dictionary<string, string[]>
+{
+    ["MIGRATION.LS_OV_IADE_INVOICE"] = new[]{"CURTOTAL","TLTOTAL","TAX","DV","GRANDTOTAL","PAYABLETOTAL","EXPEND_FEE","TOTAL_EXCL_TAX","TOTAL_TAX","PAYABLE_TOTAL","GAS_OPEN_FEE","DEFAULT_FINE","DEFAULT_FINE_TAX","ILLEGAL_USE_FEE","DISCOUNT_ADDITION","SPEC_SERV_FEE","HAS_GAZ","HAS_GUV","HAS_DISCOUNT","DISCOUNT_AMOUNT"},
+    ["MIGRATION.STG_RD_ACC_INC"] = new[]{"EXPEND_FEE","TOTAL_EXCL_TAX","TOTAL_TAX","PAYABLE_TOTAL"},
+    ["MIGRATION.STG_INV_ACC_INC"] = new[]{"EXPEND_FEE","TOTAL_EXCL_TAX","TOTAL_TAX","PAYABLE_TOTAL","GAS_OPEN_FEE","DEFAULT_FINE","DEFAULT_FINE_TAX","ILLEGAL_USE_FEE","DISCOUNT_ADDITION","SPEC_SERV_FEE","HAS_GAZ","HAS_GUV","HAS_DISCOUNT","DISCOUNT_AMOUNT"},
+    ["MIGRATION.LS_OV_PAY_ALLOC"] = new[]{"ALLOC_AMT","RAW_ALLOC","MAIN_PAYABLE"},
+    ["MIGRATION.LS_OV_TAH_INVOICE"] = new[]{"EXPEND_FEE","TOTAL_EXCL_TAX","TOTAL_TAX","PAYABLE_TOTAL","GAS_OPEN_FEE","DEFAULT_FINE","DEFAULT_FINE_TAX","ILLEGAL_USE_FEE","DISCOUNT_ADDITION","SPEC_SERV_FEE","HAS_GAZ","HAS_GUV","HAS_DISCOUNT","DISCOUNT_AMOUNT"},
+    ["MIGRATION.LS_OV_PAY_PT"] = new[]{"PAYABLETOTAL","PAID","PAY_FULL_AMT"},
+    ["MIGRATION.LS_OV_MAHSUP_SRC"] = new[]{"PAYABLETOTAL"},
+    ["MIGRATION.LS_OV_IADE_PAYTRANS"] = new[]{"AMOUNT","TLTOTAL","TAX"},
+    ["MIGRATION.LS_OV_KISMI_INVLINES"] = new[]{"AMOUNT","TLTOTAL","TAX","GRANDTOTAL"},
+    ["MIGRATION.LS_OV_IADE_INVLINES"] = new[]{"AMOUNT","TLTOTAL","TAX","GRANDTOTAL"},
+};
+
+await using var conn = new OracleConnection(cs);
+await conn.OpenAsync();
+Console.WriteLine("CONNECTED OK");
+
+foreach (var (table, cols) in tables)
+{
+    Console.WriteLine("\n==== " + table + " ====");
+    // column metadata
+    var metaSql = $@"SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
+FROM ALL_TAB_COLUMNS
+WHERE OWNER='MIGRATION' AND TABLE_NAME='{table.Split('.').Last()}'
+AND COLUMN_NAME IN ({string.Join(",", cols.Select(c => $"'{c}'"))})
+ORDER BY COLUMN_ID";
+    await using (var cmd = new OracleCommand(metaSql, conn))
+    await using (var r = await cmd.ExecuteReaderAsync())
+    {
+        while (await r.ReadAsync())
+            Console.WriteLine($"META {r.GetString(0)} {r.GetString(1)} prec={r[2]} scale={r[3]}");
+    }
+
+    // existing columns only
+    var exist = new List<string>();
+    await using (var cmd = new OracleCommand($@"SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE OWNER='MIGRATION' AND TABLE_NAME='{table.Split('.').Last()}'", conn))
+    await using (var r = await cmd.ExecuteReaderAsync())
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (await r.ReadAsync()) set.Add(r.GetString(0));
+        exist = cols.Where(c => set.Contains(c)).ToList();
+    }
+    if (exist.Count == 0) { Console.WriteLine("NO COLUMNS FOUND"); continue; }
+
+    var cntSql = $"SELECT COUNT(*) FROM {table}";
+    await using (var cmd = new OracleCommand(cntSql, conn))
+        Console.WriteLine("COUNT=" + Convert.ToString(await cmd.ExecuteScalarAsync()));
+
+    // sample + stats: how many have fractional part vs look like cents (/100)
+    var sel = string.Join(",", exist.Select(c =>
+        $"MIN({c}) MIN_{c}, MAX({c}) MAX_{c}, " +
+        $"SUM(CASE WHEN {c} IS NOT NULL AND {c}<>TRUNC({c}) THEN 1 ELSE 0 END) FRAC_{c}, " +
+        $"SUM(CASE WHEN {c} IS NOT NULL AND MOD(ABS({c}),1)=0 AND MOD(ABS({c}),100)<>0 THEN 1 ELSE 0 END) INTMOD100_{c}, " +
+        $"SUM(CASE WHEN {c} IS NOT NULL THEN 1 ELSE 0 END) NN_{c}"));
+    var statsSql = $"SELECT {sel} FROM {table}";
+    try
+    {
+        await using var cmd = new OracleCommand(statsSql, conn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (await r.ReadAsync())
+        {
+            foreach (var c in exist)
+            {
+                var min = r[$"MIN_{c}"]; var max = r[$"MAX_{c}"];
+                var frac = Convert.ToInt64(r[$"FRAC_{c}"]);
+                var im = Convert.ToInt64(r[$"INTMOD100_{c}"]);
+                var nn = Convert.ToInt64(r[$"NN_{c}"]);
+                Console.WriteLine($"STAT {c}: min={min} max={max} nn={nn} with_fraction={frac} integer_mod100_neq0={im}");
+            }
+        }
+    }
+    catch (Exception ex) { Console.WriteLine("STAT_ERR " + ex.Message); }
+
+    var sampleSql = $"SELECT {string.Join(",", exist)} FROM {table} WHERE ROWNUM<=8";
+    try
+    {
+        await using var cmd = new OracleCommand(sampleSql, conn);
+        await using var r = await cmd.ExecuteReaderAsync();
+        var names = exist.ToArray();
+        Console.WriteLine("SAMPLE\t" + string.Join("\t", names));
+        while (await r.ReadAsync())
+        {
+            var vals = names.Select(n => {
+                var v = r[n];
+                if (v == DBNull.Value) return "NULL";
+                if (v is decimal d) return d.ToString(CultureInfo.InvariantCulture);
+                return Convert.ToString(v, CultureInfo.InvariantCulture) ?? "";
+            });
+            Console.WriteLine("ROW\t" + string.Join("\t", vals));
+        }
+    }
+    catch (Exception ex) { Console.WriteLine("SAMPLE_ERR " + ex.Message); }
+}
