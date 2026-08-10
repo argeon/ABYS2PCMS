@@ -38,3 +38,36 @@ ORDER BY LOG_TS DESC;
 5. `SP_MIG_597_GATE`.
 
 **Yasak:** hot path’te MGR `LS_OV_ID_MAP` UPDATE (→ `20a` offline).
+
+---
+
+## R15 — PAY_PT map → borç LREF (IOCODE=0) — 195 gap ~30M
+
+**Belirti:** `PAY_PT` ENERGY_LREF dolu ama `PAYTRANS` IOCODE=1 sayısı map’ten ~30M eksik; map join’inde `IOCODE=0` satırlar.
+
+**Kök:** hint path **adopt** `LREF` doluysa IOCODE bakmadan MAP+`LOADED=1` → tahsilat INSERT atlanır (borç LREF collide).
+
+**YASAK:** bozuk map varken `@CLEAN=1` FULL — CLEAN `map→PT DELETE` borç satırını siler.
+
+**Kalıp:** `20e_597_PAY_PT_BAD_MAP_HEAL.sql` + adopt fix (`20_597_INSERT` / `20d`).
+
+### 195 güvenli sıra (2026-08-09 gece — go)
+
+```text
+✓ Adopt fix 195’te deploy (SP_MIG_597_INSERT 22:27, IOCODE<>0)
+✓ PAYTRANS NCIX zaten OFF (15 disabled) — 20b no-op / yine de koşulabilir
+0) bad_map hâlâ ~30.036.120 — 20e şart
+1) 20e_597_PAY_PT_BAD_MAP_HEAL.sql  (@DRY_RUN=0) → POST bad=0
+2) EXEC SP_MIG_597_ALL @AGR_ID=NULL, @CLEAN=0, @DEBUG=1, @BatchSize=250000
+   ★ CLEAN=1 YASAK | Messages: collide→identity / PAY_PT(identity)= artmalı
+3) GATE_PASS yetmez — kabul sorgusu:
+     bad_map IOCODE=0 = 0
+     IOCODE=1 ≈ 66.8M
+     PT toplam ≈ 140M
+4) 20c_PAYTRANS_NCIX_REBUILD.sql
+```
+
+**Yapma:** `20a` (sadece TAH_INV null fill — bu anomaliyi çözmez).  
+**Yapma:** `20d` adopt’u heal öncesi eski gövdeyle — borç adopt tekrarlar (redeploy şart).
+
+**Sonraki aktarım:** FULL öncesi A1–A7 + probe C — `NOTES_REVIZYON_BACKLOG.md` →「SONRAKI AKTARIM — hazırlık」.

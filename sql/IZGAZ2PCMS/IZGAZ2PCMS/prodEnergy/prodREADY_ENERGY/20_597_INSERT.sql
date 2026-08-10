@@ -903,7 +903,7 @@ BEGIN
                 THROW;
             END CATCH
 
-            /* adopt: batch→PT LREF (onceki kismi yazim) — FORCE ORDER batch-first */
+            /* adopt: sadece tahsilat PT (IOCODE<>0). Borç LREF collide → identity (R15). */
             UPDATE m SET m.ENERGY_LREF = p.LREF_HINT
             FROM dbo.MIG_597_STG_SRC_BATCH b
             INNER JOIN dbo.MIG_597_STG_PAY p ON p.SRC_KEY = b.SRC_KEY
@@ -913,6 +913,7 @@ BEGIN
               AND p.LOADED = 0
               AND p.LREF_HINT IS NOT NULL
               AND m.ENERGY_LREF IS NULL
+              AND t.IOCODE <> 0
             OPTION (RECOMPILE, FORCE ORDER);
 
             UPDATE p SET p.LOADED = 1
@@ -922,6 +923,18 @@ BEGIN
             WHERE p.USE_HINT = 1
               AND p.LOADED = 0
               AND p.LREF_HINT IS NOT NULL
+              AND t.IOCODE <> 0
+            OPTION (RECOMPILE, FORCE ORDER);
+
+            /* borç hint collide → identity (LOADED kalmasin) */
+            UPDATE p SET p.USE_HINT = 0
+            FROM dbo.MIG_597_STG_SRC_BATCH b
+            INNER JOIN dbo.MIG_597_STG_PAY p ON p.SRC_KEY = b.SRC_KEY
+            INNER JOIN dbo.LS_005_01_PAYTRANS t WITH (NOLOCK) ON t.LREF = p.LREF_HINT
+            WHERE p.USE_HINT = 1
+              AND p.LOADED = 0
+              AND p.LREF_HINT IS NOT NULL
+              AND t.IOCODE = 0
             OPTION (RECOMPILE, FORCE ORDER);
 
             /* cakisma → identity: sadece batch, MAP_OUT'ta yok */
@@ -976,14 +989,38 @@ BEGIN
         END
     END
 
-    /* identity path — MERGE OUTPUT batch; LOADED=1; MGR SKIP */
+    /* identity path — keyset SRC_KEY + MERGE OUTPUT; MAXDOP 8 (CXSYNC öldürür)
+       DEBUG left=COUNT(*) YASAK (24M+ rescan/batch). */
     SET @Total = 0;
-    WHILE EXISTS (
-        SELECT 1 FROM dbo.MIG_597_STG_PAY WITH (NOLOCK)
-        WHERE USE_HINT = 0 AND LOADED = 0
-    )
+    SET @PayLastKey = N'';
+    WHILE 1 = 1
     BEGIN
+        TRUNCATE TABLE dbo.MIG_597_STG_SRC_BATCH;
         TRUNCATE TABLE dbo.MIG_597_STG_MAP_OUT;
+
+        INSERT INTO dbo.MIG_597_STG_SRC_BATCH (SRC_KEY)
+        SELECT TOP (@BatchSize) p.SRC_KEY
+        FROM dbo.MIG_597_STG_PAY p
+        WHERE p.USE_HINT = 0
+          AND p.LOADED = 0
+          AND p.SRC_KEY > @PayLastKey
+        ORDER BY p.SRC_KEY
+        OPTION (RECOMPILE, MAXDOP 8);
+
+        SET @BatchN = @@ROWCOUNT;
+        IF @BatchN = 0
+        BEGIN
+            /* keyset sonu — basta kalan LOADED=0 varsa (race) bir tur daha */
+            IF @PayLastKey = N'' BREAK;
+            IF NOT EXISTS (
+                SELECT 1 FROM dbo.MIG_597_STG_PAY WITH (NOLOCK)
+                WHERE USE_HINT = 0 AND LOADED = 0
+            ) BREAK;
+            SET @PayLastKey = N'';
+            CONTINUE;
+        END
+
+        SELECT @PayLastKey = MAX(SRC_KEY) FROM dbo.MIG_597_STG_SRC_BATCH;
 
         BEGIN TRY
             BEGIN TRAN;
@@ -991,14 +1028,15 @@ BEGIN
 
             MERGE dbo.LS_005_01_PAYTRANS WITH (HOLDLOCK) AS t
             USING (
-                SELECT TOP (@BatchSize) p.*
-                FROM dbo.MIG_597_STG_PAY p
-                WHERE p.USE_HINT = 0 AND p.LOADED = 0
+                SELECT p.*
+                FROM dbo.MIG_597_STG_SRC_BATCH b
+                INNER JOIN dbo.MIG_597_STG_PAY p ON p.SRC_KEY = b.SRC_KEY
+                WHERE p.USE_HINT = 0
+                  AND p.LOADED = 0
                   AND NOT EXISTS (
-                        SELECT 1 FROM dbo.MIG_OV_ID_MAP m
+                        SELECT 1 FROM dbo.MIG_OV_ID_MAP m WITH (NOLOCK)
                         WHERE m.SRC_KEY = p.SRC_KEY AND m.ENERGY_LREF IS NOT NULL
                       )
-                ORDER BY p.SRC_KEY
             ) AS s
             ON 1 = 0
             WHEN NOT MATCHED THEN INSERT (
@@ -1021,18 +1059,29 @@ BEGIN
                 ISNULL(s.XTYPE, 1)
             )
             OUTPUT inserted.LREF, s.SRC_KEY INTO dbo.MIG_597_STG_MAP_OUT (ENERGY_LREF, SRC_KEY)
-            OPTION (RECOMPILE);
+            OPTION (RECOMPILE, MAXDOP 8);
 
             SET @BatchN = @@ROWCOUNT;
 
             UPDATE m SET m.ENERGY_LREF = o.ENERGY_LREF
-            FROM dbo.MIG_OV_ID_MAP m
-            INNER JOIN dbo.MIG_597_STG_MAP_OUT o ON o.SRC_KEY = m.SRC_KEY
-            WHERE m.ENERGY_LREF IS NULL;
+            FROM dbo.MIG_597_STG_MAP_OUT o
+            INNER JOIN dbo.MIG_OV_ID_MAP m ON m.SRC_KEY = o.SRC_KEY
+            WHERE m.ENERGY_LREF IS NULL
+            OPTION (RECOMPILE, MAXDOP 8, FORCE ORDER);
 
             UPDATE p SET p.LOADED = 1
-            FROM dbo.MIG_597_STG_PAY p
-            INNER JOIN dbo.MIG_597_STG_MAP_OUT o ON o.SRC_KEY = p.SRC_KEY;
+            FROM dbo.MIG_597_STG_MAP_OUT o
+            INNER JOIN dbo.MIG_597_STG_PAY p ON p.SRC_KEY = o.SRC_KEY
+            OPTION (RECOMPILE, MAXDOP 8, FORCE ORDER);
+
+            /* MAP'te zaten doluysa (resume) LOADED işaretle — tekrar INSERT yok */
+            UPDATE p SET p.LOADED = 1
+            FROM dbo.MIG_597_STG_SRC_BATCH b
+            INNER JOIN dbo.MIG_597_STG_PAY p ON p.SRC_KEY = b.SRC_KEY
+            INNER JOIN dbo.MIG_OV_ID_MAP m ON m.SRC_KEY = b.SRC_KEY
+            WHERE p.LOADED = 0
+              AND m.ENERGY_LREF IS NOT NULL
+            OPTION (RECOMPILE, MAXDOP 8, FORCE ORDER);
 
             COMMIT TRAN;
         END TRY
@@ -1046,13 +1095,9 @@ BEGIN
         BEGIN
             SET @Msg = N'597 PAY_PT identity batch +' + CAST(@BatchN AS VARCHAR(20))
                      + N' total=' + CAST(@Total AS VARCHAR(20))
-                     + N' left=' + CAST((
-                            SELECT COUNT(*) FROM dbo.MIG_597_STG_PAY WITH (NOLOCK)
-                            WHERE USE_HINT = 0 AND LOADED = 0
-                       ) AS VARCHAR(20));
+                     + N' lastKey=' + @PayLastKey;
             RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
         END
-        IF @BatchN = 0 BREAK;
     END
 
     IF @DEBUG = 1

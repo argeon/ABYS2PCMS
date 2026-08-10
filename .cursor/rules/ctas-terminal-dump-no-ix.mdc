@@ -34,4 +34,4 @@ Karışık dosya: yalnızca **final terminal** tablonun IX/STATS’ını kaldır
 2. Yoksa terminal DUMP şablonu — IX/STATS ekleme.
 3. Varsa zincir IX’i CREATE sonrası koy; stats ihtiyaca göre.
 
-Canlı omurga: `BACKUP/oracleCTAS3007/`. Snapshot: `BACKUP/20260708/CTAS/` (sync ile).
+Canlı omurga: `BACKUP/oracleCTAS3007/`. Paket: `MIGRATION_SCR_20260708/CTAS/` (sync ile).
