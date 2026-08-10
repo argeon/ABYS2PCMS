@@ -83,10 +83,13 @@ GO
 
 /* =============================================================================
    C) 590 EKSILTEN OVERLAY — ancak B bittikten sonra
-      Deploy SIRAYLA: 10_590_INSERT → 11_590_WIRE → 12_590_GATE → 19_590_ALL
+      Deploy SIRAYLA: 10 → 11 → 13_TAM_MAIN_CLOSE → 12 → 19_590_ALL
+      ALL: INSERT → WIRE → TAM_MAIN_CLOSE → GATE
    ============================================================================= */
 
 RAISERROR('========== C) 590 EKSILTEN OVERLAY ==========', 0, 1) WITH NOWAIT;
+/* Deploy SIRAYLA: 10 → 11 → 13_TAM_MAIN_CLOSE → 12 → 19_590_ALL
+   ALL icinde: INSERT → WIRE → TAM_MAIN_CLOSE → GATE */
 EXEC energy.dbo.SP_MIG_590_ALL
     @AGR_ID = NULL,
     @CLEAN  = 1,
@@ -131,6 +134,26 @@ GO
 -- GO
 
 /* =============================================================================
+   D3) TYPE109 DV HEAL — LS_001 düzeni (gelirden DV + CROSSREF tahsilat)
+       Not: NOTES_CANLI §2b · 05:00 aktarım testi checklist
+       Dosya: 92_INV_DV_FROM_INCOME_HEAL.sql  (@DryRun=1 önce; APPLY @DryRun=0)
+       CTAS O10–O12 TOTAL_DV deploy + dump yapıldıysa Faz A hafif; Faz B yine kontrol
+   ============================================================================= */
+
+-- RAISERROR('========== D3) 92 INV DV FROM INCOME HEAL ==========', 0, 1) WITH NOWAIT;
+-- :r prodREADY_ENERGY/92_INV_DV_FROM_INCOME_HEAL.sql
+-- (veya sqlcmd -i …92_INV_DV_FROM_INCOME_HEAL.sql — önce DryRun=1)
+
+/* =============================================================================
+   D4) AGR FEE_COLLECTED — 109 Güvence + 86 Bağlantı tahsil
+       Not: NOTES_CANLI §2c
+       Dosya: 93_AGR_FEE_COLLECTED_HEAL.sql  (@DryRun=1 önce; APPLY @DryRun=0)
+   ============================================================================= */
+
+-- RAISERROR('========== D4) 93 AGR FEE_COLLECTED HEAL ==========', 0, 1) WITH NOWAIT;
+-- :r prodREADY_ENERGY/93_AGR_FEE_COLLECTED_HEAL.sql
+
+/* =============================================================================
    E) DOGRULAMA
    ============================================================================= */
 
@@ -139,20 +162,25 @@ GO
 -- + CHECK_QUERIES_ENERGY.sql
 
 /*
+   Operatör: CUTOVER_ONE_PAGE.md · Gün: NOTES_CUTOVER_DAY_20260811.md
    Ozet:
 
    [ ] A setup (00_log, 00_map, MAP copy, 00_abys, 01_linenr)
    [ ] B1 EXEC SP_MIGRATE_LS005_INVOICE
    [ ] B2 EXEC SP_MIGRATE_LS005_INVLINES
    [ ] B3 EXEC SP_MIGRATE_LS005_DEBT_PAYTRANS
-   [ ] C  deploy 10→11→12→19  + EXEC SP_MIG_590_ALL
+   [ ] C  deploy 10→11→13→12→19  + EXEC SP_MIG_590_ALL
+       (13 = TAM_MAIN_CLOSE; ALL WIRE sonrasi otomatik)
    [ ] D  28_DEPLOY_597 (00f+20+21+00g+22+29) + 20b → ALL @BatchSize=250000 → 20c
    [ ]    resume: 20a + ALL @CLEAN=0
    [ ]    GATE_PASS (NOTES_597_V5 — CANCEL_REV)
    [ ] D2 O60 dump + deploy 60→69 + EXEC SP_MIG_GUVENCE_IADE_ALL (TYPE110)
+   [ ] D3 92_INV_DV_FROM_INCOME_HEAL DryRun=1 → APPLY (NOTES §2b — 05:00 test)
+   [ ] D4 93_AGR_FEE_COLLECTED_HEAL DryRun=1 → APPLY (NOTES §2c)
    [ ] E  SP_MIG_LOG_STATUS
    [ ] V  95 → 99 → 97 @OnlyDiff=1 (FRK okuma: NOTES_CANLI §okuma kurali)
-   [ ] F  Acik kod — NOTES_CANLI (TAM MAIN | O20 ASIM | mahsup 162/1936)
-          heal/98_TEST ile “bitti” sayma — bkz. ../PAKET_PATCH_HIZALAMA.md
+   [ ] F  Acik kod — NOTES_CANLI (O20 ASIM | mahsup 162/1936)
+          TAM MAIN close: E590 SP_MIG_590_TAM_MAIN_CLOSE (R20) — 98_TEST yalniz ad-hoc
           Spot: AGR 3 (TAM), 412056 (ASIM+emanet), INV 66081785 (CANCEL_REV)
+          DV spot: OWNERREF 1200078 / INV 147401407 — TAH TOTAL=GT-DV
 */

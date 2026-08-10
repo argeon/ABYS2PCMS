@@ -114,7 +114,8 @@ $ctasExtras = @(
     @{ Src = 'oracleCTAS3007/LS_HHD_MSTR_DIAG.sql'; Pref = 80 },
     @{ Src = 'oracleCTAS3007/VERIFY_SYNTH_GAP.sql'; Pref = 81 },
     @{ Src = 'oracleCTAS3007/PILOT_FINDINGS.md'; Pref = 82 },
-    @{ Src = 'oracleCTAS3007/README.md'; Pref = 83 }  # 3007 README (075 prodREADY README ayri)
+    @{ Src = 'oracleCTAS3007/README.md'; Pref = 83 },  # 3007 README (075 prodREADY README ayri)
+    @{ Src = 'oracleCTAS3007/NOTES_CTAS_NO_RESTART.md'; Pref = 84 }  # FAIL→resume; 00_run_all bashtan YASAK
 )
 $existingCtasSrc = @{}
 foreach ($e in $ctasEntries) { $existingCtasSrc[(Split-Path $e.Src -Leaf).ToUpperInvariant()] = $true }
@@ -151,7 +152,7 @@ Bu klasor KOPYA arsiv + kosulabilir orchestrator.
 | EXTRA | 070+ | prodREADY-only / 3007-extra diag |
 | ORCH | 00_RUN_ALL / 090 | tek FULL orchestrator |
 
-## ORCH — bastan FULL
+## ORCH — FULL (dikkat)
 
 ```text
 cd ...\20260708\CTAS
@@ -160,6 +161,9 @@ sqlplus user/pass@db @00_RUN_ALL.SQL
 
 Sira: SESSION → master A01–A19 → O09/READING/HHD → KFACTOR/SPEFEE → O10–O60 → IX → log
 MIG_CTAS_LOG: cnt / MB / start / end / sec
+
+★ FAIL sonrasi 00_RUN_ALL BASHTAN YASAK — NOTES_CTAS_NO_RESTART.md (resume / fazli kosu)
+TEMP baskisi → DOP 48 (00_session_parallel)
 
 Detay: ../MANIFEST_CTAS.txt · SCHEMA: 000_SCHEMA_CTAS_ORDER.MD
 "@
