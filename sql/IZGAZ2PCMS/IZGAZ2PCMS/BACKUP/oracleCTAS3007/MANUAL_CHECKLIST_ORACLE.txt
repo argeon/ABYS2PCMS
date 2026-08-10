@@ -5,11 +5,13 @@ Operator: _______________   Tarih: ____/____/2026
 ================================================================================
 sqlplus @dosya | tee logs/oracleCTAS3007/Oxx_YYYYMMDD_HHMM.log
 GATE_FAIL → DUR. Son: @99_log_status.sql + @_skip/CHECK_QUERIES_ORACLE.sql
+★ FAIL sonrası @00_run_all BAŞTAN YASAK — NOTES_CTAS_NO_RESTART.md (resume)
 ================================================================================
 
-[ ] INDEX.md / DUMP_MANIFEST.txt / PILOT_FINDINGS.md okundu
-[ ] sqlplus MIGRATION OK · TEMP/undo yeterli
+[ ] INDEX.md / DUMP_MANIFEST.txt / NOTES_CTAS_NO_RESTART.md okundu
+[ ] sqlplus MIGRATION OK · TEMP/undo/tablespace yeterli · DOP 56|48 karar
 [ ] _skip/ icinde calistirilmayan SQL (O30h/40/31/diag/CHECK) — zincire KARISMAZ
+[ ] Fazli kosu tercih (A→R→B1→B2★O27→B3★O41→C) — tek kor 00_run_all riskli
 
 Adim                              Dosya                              Saat   Sonuc
 --------------------------------------------------------------------------------

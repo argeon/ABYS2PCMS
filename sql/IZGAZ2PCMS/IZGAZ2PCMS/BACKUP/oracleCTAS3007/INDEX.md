@@ -3,6 +3,8 @@
 Okuma/HHD (tahsilat öncesi veya paralel): `09_mig_accrue_type_map` → `LS_READING` → `LS_READING_SYNTH` → `LS_HHD_MSTR` → GATE → O11.
 Katalog: `TABLE_CATALOG.md` · Dump: `DUMP_MANIFEST.txt` · Cleanup: `99_stg_cleanup.sql` · IX: `98_transfer_indexes.sql`
 
+**Patlama / resume (baştan alma yasak):** [`NOTES_CTAS_NO_RESTART.md`](NOTES_CTAS_NO_RESTART.md)
+
 ## Kural — Oracle INDEX / STATS
 
 | Sınıf | Oracle INDEX + `GATHER_TABLE_STATS` |

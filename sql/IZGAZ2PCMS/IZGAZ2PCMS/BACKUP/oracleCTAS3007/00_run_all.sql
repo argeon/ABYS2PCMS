@@ -2,6 +2,11 @@
 -- Her adim: DROP+CREATE (script ici) + MIG_CTAS_LOG (cnt/MB/sure)
 -- Siralama: SCHEMA_CTAS_ORDER.md | Dump: DUMP_MANIFEST.txt | Ozet: @99_log_status.sql
 -- Pilot: @00_run_pilot_overlay.sql
+--
+-- ★ PATLAMA / RESUME: NOTES_CTAS_NO_RESTART.md
+--   WHENEVER SQLERROR EXIT → ilk ORA zinciri oldurur; bu "her sey bozuk" DEGIL.
+--   FAIL sonrasi @00_run_all BASHTAN YASAK → MIG_CTAS_LOG son OK → o adimdan devam.
+--   Cutover: fazli kosu (A / R / B1-B3 / C) tercih; TEMP → DOP 48.
 WHENEVER SQLERROR EXIT FAILURE
 SET ECHO ON
 SET SERVEROUTPUT ON SIZE UNLIMITED
