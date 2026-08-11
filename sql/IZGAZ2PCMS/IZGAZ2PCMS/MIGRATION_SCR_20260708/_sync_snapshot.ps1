@@ -72,122 +72,79 @@ function To-SnapName([string]$SrcFileName) {
     return ($leaf.ToUpperInvariant())
 }
 
-# ---------- CTAS: manifest + ayni ad → daha yeni (3007 vs prodREADY) ----------
+# ---------- CTAS: NNN_NAME_VER map + tek 00_RUN_ALL ----------
+. (Join-Path $Snap '_ctas_nnn_map.ps1')
 New-Item -ItemType Directory -Path $CtasDir -Force | Out-Null
 $ctasManifestPath = Join-Path $Snap 'MANIFEST_CTAS.txt'
-$ctasEntries = @(Parse-Manifest $ctasManifestPath)
-$ctasNewLines = New-Object System.Collections.Generic.List[string]
-$ctasNewLines.Add("# Yenilendi: $Today") | Out-Null
+$ctasMap = @($script:CtasMap)
+$ctasKeep = New-Object 'System.Collections.Generic.HashSet[string]'
+[void]$ctasKeep.Add('00_RUN_ALL.SQL')
+[void]$ctasKeep.Add('000_RUN_ORDER.MD')
 
-foreach ($e in $ctasEntries) {
-    $srcRel = $e.Src
-    if ($srcRel -eq '(generated)' -or $e.Dest -match '^000_RUN_ORDER') { continue }
-    $leaf = Split-Path $srcRel -Leaf
-    # Overlap: oracleCTAS3007 vs prodREADY — daha yeni kazansin (manifest EXTRA haric)
-    # PIN: kritik O30 her zaman 3007 (ACTION_DATE<=PAY kaldirildi; prodREADY eski filtreyi geri getirmesin)
-    $pin3007 = @('30_ls_tahsilat_overlay.sql', '41_gate_tahsilat.sql')
-    $isExtra = $e.Raw -match 'EXTRA_PRODREADY|DOC|ORCH|PILOT|OPSIYONEL'
+$ctasFinal = New-Object System.Collections.Generic.List[string]
+$ctasFinal.Add("# Yenilendi: $Today — NNN_NAME_VER") | Out-Null
+$ctasFinal.Add('000_RUN_ORDER.MD <= (generated)  # DOC') | Out-Null
+$ctasFinal.Add('00_RUN_ALL.SQL <= (generated)  # ORCH') | Out-Null
+
+$leafToDest = @{}
+$pin3007 = @('30_ls_tahsilat_overlay.sql', '41_gate_tahsilat.sql')
+
+for ($ci = 0; $ci -lt $ctasMap.Count; $ci++) {
+    $it = $ctasMap[$ci]
+    $srcRel = $it.Src
+    $leaf = Split-Path ($srcRel -replace '/', '\') -Leaf
     $c7 = Join-Path $Base "oracleCTAS3007\$leaf"
     $pr = Join-Path $Base "oracleCTAS\prodREADY\$leaf"
+    $isExtra = $it.Note -match 'EXTRA_|PILOT|OPSIYONEL|DOC'
     if ($pin3007 -contains $leaf -and (Test-Path $c7)) {
         $srcRel = "oracleCTAS3007/$leaf"
     } elseif (-not $isExtra -and (Test-Path $c7) -and (Test-Path $pr) -and ($srcRel -match 'oracleCTAS')) {
-        $i7 = Get-Item $c7
-        $ipr = Get-Item $pr
-        if ($ipr.LastWriteTime -gt $i7.LastWriteTime) {
+        if ((Get-Item $pr).LastWriteTime -gt (Get-Item $c7).LastWriteTime) {
             $srcRel = "oracleCTAS/prodREADY/$leaf"
         } else {
             $srcRel = "oracleCTAS3007/$leaf"
         }
     }
-    $dest = Join-Path $CtasDir $e.Dest
-    Copy-SnapFile $srcRel $dest | Out-Null
-    $note = ''
-    if ($e.Raw -match '#\s*(.+)$') { $note = '  # ' + $Matches[1].Trim() }
-    $ctasNewLines.Add("$($e.Dest) <= $srcRel$note") | Out-Null
-}
-
-# CTAS eksikler (3007-only onemli)
-$ctasExtras = @(
-    @{ Src = 'oracleCTAS/LS_PROJECT.sql'; Pref = 26 },
-    @{ Src = 'oracleCTAS/LS_PROJECTLINE.sql'; Pref = 27 },
-    @{ Src = 'oracleCTAS3007/LS_HHD_MSTR_DIAG.sql'; Pref = 80 },
-    @{ Src = 'oracleCTAS3007/VERIFY_SYNTH_GAP.sql'; Pref = 81 },
-    @{ Src = 'oracleCTAS3007/PILOT_FINDINGS.md'; Pref = 82 },
-    @{ Src = 'oracleCTAS3007/README.md'; Pref = 83 },  # 3007 README (075 prodREADY README ayri)
-    @{ Src = 'oracleCTAS3007/NOTES_CTAS_NO_RESTART.md'; Pref = 84 }  # FAIL→resume; 00_run_all bashtan YASAK
-)
-$existingCtasSrc = @{}
-foreach ($e in $ctasEntries) { $existingCtasSrc[(Split-Path $e.Src -Leaf).ToUpperInvariant()] = $true }
-# also track dest leaves
-foreach ($line in $ctasNewLines) {
-    if ($line -match '<=\s+(\S+)') {
-        $existingCtasSrc[(Split-Path $Matches[1] -Leaf).ToUpperInvariant()] = $true
+    if (-not (Test-Path (Join-Path $Base ($srcRel -replace '/', '\'))) -and
+        -not (Test-Path (Join-Path $PkgRoot ($srcRel -replace '/', '\')))) {
+        Write-Warning "CTAS atlandi (yok): $srcRel"
+        continue
     }
+
+    $destPath = Join-Path $CtasDir $it.Dest
+    Copy-SnapFile $srcRel $destPath | Out-Null
+    [void]$ctasKeep.Add($it.Dest)
+    $leafToDest[$leaf.ToUpperInvariant()] = $it.Dest
+
+    # SQL header stamp (kisa)
+    if ($it.Dest -match '\.SQL$') {
+        $next = if ($ci + 1 -lt $ctasMap.Count) { $ctasMap[$ci + 1] } else { $null }
+        # Sonraki RUNALL adimi daha anlamli
+        if ($it.InRunAll) {
+            $nextRun = $null
+            for ($j = $ci + 1; $j -lt $ctasMap.Count; $j++) {
+                if ($ctasMap[$j].InRunAll) { $nextRun = $ctasMap[$j]; break }
+            }
+            $next = $nextRun
+        }
+        $body = Get-Content -LiteralPath $destPath -Raw -Encoding UTF8
+        $body = Add-CtasHeaderStamp $body $it $next
+        Set-Content -LiteralPath $destPath -Value $body -Encoding UTF8
+    }
+
+    $note = if ($it.Note) { "  # $($it.Note)" } else { '' }
+    if ($it.InRunAll) { $note = "  # RUNALL$note" }
+    $ctasFinal.Add("$($it.Dest) <= $srcRel$note") | Out-Null
 }
-$nnn = Next-NNN $CtasDir 80
-foreach ($x in $ctasExtras) {
-    $leafU = (Split-Path $x.Src -Leaf).ToUpperInvariant()
-    if ($existingCtasSrc.ContainsKey($leafU)) { continue }
-    if (-not (Test-Path (Join-Path $Base ($x.Src -replace '/', '\')))) { continue }
-    $destName = ('{0:D3}_{1}' -f $nnn, (To-SnapName $x.Src))
-    Copy-SnapFile $x.Src (Join-Path $CtasDir $destName) | Out-Null
-    $ctasNewLines.Add("$destName <= $($x.Src)  # EXTRA_3007") | Out-Null
-    $nnn++
-}
 
-# 000_RUN_ORDER.MD regenerate light
-$runOrder = @"
-# 20260708/CTAS — CALISTIRMA SIRASI (yenilendi $Today)
-
-Kaynak: oracleCTAS3007 omurga + oracleCTAS/prodREADY (ayni ad varsa daha yeni kazanan).
-Bu klasor KOPYA arsiv + kosulabilir orchestrator.
-
-| Faz | NNN | Ne |
-|-----|-----|----|
-| DOC | 000_* | INDEX / SCHEMA / DUMP / CATALOG |
-| A | 001–027 | Master CTAS (+ LS_PROJECT / LS_PROJECTLINE) |
-| B | 030–060 | Tahsilat / overlay / gate |
-| B-opt | 033 / 061 | pilot param / STG cleanup |
-| EXTRA | 070+ | prodREADY-only / 3007-extra diag |
-| ORCH | 00_RUN_ALL / 090 | tek FULL orchestrator |
-
-## ORCH — FULL (dikkat)
-
-```text
-cd ...\20260708\CTAS
-sqlplus user/pass@db @00_RUN_ALL.SQL
-```
-
-Sira: SESSION → master A01–A19 → O09/READING/HHD → KFACTOR/SPEFEE → O10–O60 → IX → log
-MIG_CTAS_LOG: cnt / MB / start / end / sec
-
-★ FAIL sonrasi 00_RUN_ALL BASHTAN YASAK — NOTES_CTAS_NO_RESTART.md (resume / fazli kosu)
-TEMP baskisi → DOP 48 (00_session_parallel)
-
-Detay: ../MANIFEST_CTAS.txt · SCHEMA: 000_SCHEMA_CTAS_ORDER.MD
-"@
+# RUN_ORDER + RUNALL uret
 $runOrderPath = Join-Path $CtasDir '000_RUN_ORDER.MD'
-Set-Content -LiteralPath $runOrderPath -Value $runOrder -Encoding UTF8
-# keep 000_RUN_ORDER in manifest first
-$ctasFinal = New-Object System.Collections.Generic.List[string]
-$ctasFinal.Add('000_RUN_ORDER.MD <= (generated)  # DOC') | Out-Null
-foreach ($l in $ctasNewLines) {
-    if ($l -match '^# Yenilendi') { continue }
-    if ($l -match '^000_RUN_ORDER') { continue }
-    $ctasFinal.Add($l) | Out-Null
-}
-$ctasFinal | Set-Content -LiteralPath $ctasManifestPath -Encoding UTF8
+Set-Content -LiteralPath $runOrderPath -Value (Build-CtasRunOrderMd $ctasMap $Today) -Encoding UTF8
+$runAllPath = Join-Path $CtasDir '00_RUN_ALL.SQL'
+Set-Content -LiteralPath $runAllPath -Value (Build-CtasRunAll $ctasMap) -Encoding UTF8
+Write-Host "CTAS orchestrator: 00_RUN_ALL.SQL (tek)"
 
-# CTAS snapshot orchestrator: numarali @@ adlari
-$leafToDest = @{}
-foreach ($l in $ctasFinal) {
-    if ($l -match '^(\S+)\s+<=\s+(\S+)') {
-        $d = $Matches[1]; $s = $Matches[2]
-        if ($s -eq '(generated)') { continue }
-        $leafToDest[(Split-Path ($s -replace '/', '\') -Leaf).ToUpperInvariant()] = $d
-    }
-}
+$ctasFinal | Set-Content -LiteralPath $ctasManifestPath -Encoding UTF8
 
 function Rewrite-CtasRefs([string]$body) {
     return [regex]::Replace($body, '@@([^\s\r\n]+)', {
@@ -200,37 +157,23 @@ function Rewrite-CtasRefs([string]$body) {
     })
 }
 
-$srcRunAll = Join-Path $Base 'oracleCTAS3007\00_run_all.sql'
-if (Test-Path -LiteralPath $srcRunAll) {
-    $runBody = Rewrite-CtasRefs (Get-Content -LiteralPath $srcRunAll -Raw -Encoding UTF8)
-    $runBody = $runBody -replace 'oracleCTAS3007 FULL RUN', 'CTAS 20260708 FULL RUN'
-    $runBody = $runBody -replace '^-- oracleCTAS3007 / 00_run_all.sql', '-- 20260708/CTAS / 00_RUN_ALL.SQL (FULL)'
-    $runAllSnap = Join-Path $CtasDir '00_RUN_ALL.SQL'
-    Set-Content -LiteralPath $runAllSnap -Value $runBody -Encoding UTF8
-    Copy-Item -LiteralPath $runAllSnap -Destination (Join-Path $CtasDir '090_00_RUN_ALL.SQL') -Force
-    Write-Host "CTAS orchestrator: 00_RUN_ALL.SQL (+ 090_00_RUN_ALL.SQL)"
-}
-
-# Eski resume/noop/full/steps artiklari temizle
-@(
-    '00_ctas_noop.sql','00_CTAS_NOOP.SQL','00_RUN_ALL_FULL.SQL','00_RUN_ALL_STEPS.SQL',
-    '028_00_CTAS_NOOP.SQL','029_00_CTAS_RESET_FROM.SQL','087_00_RUN_FROM_A04.SQL',
-    '088_00_RUN_ALL_FULL.SQL','089_00_RUN_ALL_STEPS.SQL'
-) | ForEach-Object {
-    $p = Join-Path $CtasDir $_
-    if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force; Write-Host "removed orphan $_" }
-}
-
-# Tum CTAS SQL icindeki @@leaf.sql → numarali dest
+# @@ rewrite (RUNALL haric — zaten NNN)
 Get-ChildItem -LiteralPath $CtasDir -Filter '*.SQL' -File | ForEach-Object {
-    $p = $_.FullName
-    if ($_.Name -match '^(00_RUN_ALL|090_00_RUN_ALL)\.SQL$') { return }
-    $txt = Get-Content -LiteralPath $p -Raw -Encoding UTF8
+    if ($_.Name -eq '00_RUN_ALL.SQL') { return }
+    $txt = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
     if ($txt -notmatch '@@') { return }
     $newTxt = Rewrite-CtasRefs $txt
     if ($newTxt -ne $txt) {
-        Set-Content -LiteralPath $p -Value $newTxt -Encoding UTF8
+        Set-Content -LiteralPath $_.FullName -Value $newTxt -Encoding UTF8
         Write-Host "@@ rewrite: $($_.Name)"
+    }
+}
+
+# Eski ad / cift orch / orphan temizle
+Get-ChildItem -LiteralPath $CtasDir -File | ForEach-Object {
+    if (-not $ctasKeep.Contains($_.Name)) {
+        Remove-Item -LiteralPath $_.FullName -Force
+        Write-Host "removed orphan $($_.Name)"
     }
 }
 
@@ -385,6 +328,7 @@ $reportMap = @(
     @{ Src = 'prodEnergy/90_afl_frk/98_TEST_tam_iade_main_close.sql'; Dest = '098_TEST_TAM_IADE_MAIN_CLOSE.SQL' },
     @{ Src = 'prodEnergy/90_afl_frk/98_TEST_asim_main_close.sql'; Dest = '098_TEST_ASIM_MAIN_CLOSE.SQL' },
     @{ Src = 'prodEnergy/90_afl_frk/99_afl_vs_en_kalan_frk.sql'; Dest = '099_AFL_VS_EN_KALAN_FRK.SQL' },
+    @{ Src = 'prodEnergy/90_afl_frk/100_closed_lpd_null_dayanak.sql'; Dest = '100_CLOSED_LPD_NULL_DAYANAK.SQL' },
     @{ Src = 'prodEnergy/prodREADY_ENERGY/CHECK_QUERIES_ENERGY.sql'; Dest = '061_CHECK_QUERIES_ENERGY.SQL' },
     @{ Src = 'prodEnergy/prodREADY_ENERGY3007/90_check_queries.sql'; Dest = '090_CHECK_QUERIES.SQL' },
     @{ Src = 'prodEnergy/prodREADY_ENERGY/NOTES_CANLI_AKTARIM_REV_20260807.md'; Dest = 'NOTES_CANLI_AKTARIM_REV_20260807.MD' },
@@ -401,6 +345,8 @@ $reportMap = @(
     @{ Src = 'prodEnergy/prodREADY_ENERGY/CHECKLIST.txt'; Dest = 'CHECKLIST_ENERGY.TXT' },
     @{ Src = 'prodEnergy/prodREADY_ENERGY3007/EXIT_MAP.md'; Dest = 'EXIT_MAP.MD' },
     @{ Src = 'prodEnergy/prodREADY_ENERGY3007/MANUAL_CHECKLIST.txt'; Dest = 'MANUAL_CHECKLIST_3007.TXT' },
+    @{ Src = 'prodEnergy/prodREADY_ENERGY/CUTOVER_ONE_PAGE.md'; Dest = 'CUTOVER_ONE_PAGE.MD' },
+    @{ Src = 'prodEnergy/prodREADY_ENERGY/NOTES_CUTOVER_DAY_20260811.md'; Dest = 'NOTES_CUTOVER_DAY_20260811.MD' },
     @{ Src = 'oracleCTAS/prodREADY/CHECK_QUERIES_ORACLE.sql'; Dest = '072_CHECK_QUERIES_ORACLE.SQL' },
     @{ Src = 'oracleCTAS3007/MANUAL_CHECKLIST_ORACLE.txt'; Dest = '074_MANUAL_CHECKLIST_ORACLE.TXT' },
     @{ Src = 'oracleCTAS/prodREADY/diag_o11_ctas_smoke.sql'; Dest = '078_DIAG_O11_CTAS_SMOKE.SQL' },
@@ -448,15 +394,18 @@ Son yenileme: $Today.
 
 ## CTAS/
 Omurga: ``oracleCTAS3007`` · ayni ad varsa daha yeni: ``oracleCTAS/prodREADY``  
-Ad: ``NNN_ORIJINAL_AD.SQL`` (**BUYUK HARF**).
+Ad: ``NNN_NAME_Vnn.SQL`` (**BUYUK HARF**) · tek orch: ``00_RUN_ALL.SQL``  
+Map: ``_ctas_nnn_map.ps1``
 
 | NNN | Anlam |
 |-----|--------|
-| ``000_*`` | Dokuman — ``000_RUN_ORDER.MD`` sira kaynagi |
-| ``001–027`` | Faz A — Master CTAS (+ LS_PROJECT / LS_PROJECTLINE) |
-| ``030–060`` | Faz B — Full tahsilat / O60 GUVENCE |
-| ``070+`` | prodREADY / 3007 extra (HOTFIX/diag/checklist) |
-| ``090–091`` | Orkestrator |
+| ``001–009`` | DOC (INDEX/SCHEMA/DUMP) |
+| ``010–019`` | SETUP (LOG/SESSION/PARAM) — RUNALL |
+| ``020–099`` | MASTER — RUNALL |
+| ``100–129`` | OKUMA/HHD — RUNALL |
+| ``130–199`` | FATURA/OVERLAY/GATE — RUNALL |
+| ``200–259`` | POST + IX + LOG — RUNALL |
+| ``900+`` | PILOT/EXTRA/DIAG — RUNALL disi |
 
 ## ENERGY/
 | Kaynak | Icerik |

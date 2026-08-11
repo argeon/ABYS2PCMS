@@ -3,16 +3,17 @@
    energy baglan | Results to Text | asagida @STEP set et | F5
 
    Onkosul: 597 GATE_PASS | 20c PT NCIX | 611+611b | 50e E3 (613) BITMIS
+   R12 2026-08-11: 40/35/92 → SP_MIG_* EXEC (once 10f deploy)
 
    @STEP:
-     0  status (613 progress + index)
+     0  status (613 progress + index + SP precheck)
      1  613 resume pointer → 50e_TAKSIT_EXECS.sql (E3)
-     2  40 IPP DRY_RUN=1 (sayim)
-     3  40 IPP APPLY pointer (@DRY_RUN=0 dosyada)
-     4  35 BANKREF DRY pointer
-     5  35 BANKREF APPLY pointer
-     6  92 STG CLOSE DRY pointer
-     7  92 STG CLOSE APPLY pointer
+     2  40 IPP DRY_RUN=1
+     3  40 IPP APPLY (@DRY_RUN=0)
+     4  35 BANKREF DRY
+     5  35 BANKREF APPLY
+     6  92 STG CLOSE DRY
+     7  92 STG CLOSE APPLY
      8  validate EXECs (97 FRK)
      9  20a TAH MAP (opsiyonel)
     10  ozet counts
@@ -59,6 +60,14 @@ BEGIN
          WHERE object_id = OBJECT_ID('dbo.LS_005_01_PAYTRANS')
            AND type = 2 AND is_disabled = 1) AS pt_ncix_disabled;
 
+    SELECT name AS SP_NAME,
+           CASE WHEN OBJECT_ID(N'dbo.' + name, N'P') IS NOT NULL THEN N'OK' ELSE N'MISSING' END AS STATUS
+    FROM (VALUES
+        (N'SP_MIG_40_IPP_APPLY'),
+        (N'SP_MIG_35_BANKREF_RESOLVE'),
+        (N'SP_MIG_92_STG_CLOSE')
+    ) v(name);
+
     SELECT r.session_id, r.status, r.command, ISNULL(r.wait_type, '-') wt,
            LEFT(REPLACE(REPLACE(t.text, CHAR(13), ' '), CHAR(10), ' '), 100) txt
     FROM sys.dm_exec_requests r
@@ -91,9 +100,7 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 2
 ELSE
 BEGIN
     RAISERROR('========== STEP 2: 40 IPP DRY_RUN=1 ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('Dosya: prodREADY_ENERGY3007/40_installment_plan_pay_apply.sql', 0, 1) WITH NOWAIT;
-    RAISERROR('Icinde: DECLARE @DRY_RUN BIT = 1;  @AGR_ID = NULL;', 0, 1) WITH NOWAIT;
-    RAISERROR('sqlcmd: -i 40_installment_plan_pay_apply.sql', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_40_IPP_APPLY @DRY_RUN = 1, @AGR_ID = NULL;
 END
 GO
 
@@ -105,8 +112,8 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 3
 ELSE
 BEGIN
     RAISERROR('========== STEP 3: 40 IPP APPLY ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('40_installment_plan_pay_apply.sql → @DRY_RUN = 0; @AGR_ID = NULL;', 0, 1) WITH NOWAIT;
     RAISERROR('Onkosul: 613 pending=0 + MIG_40_STG_IPP var', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_40_IPP_APPLY @DRY_RUN = 0, @AGR_ID = NULL;
 END
 GO
 
@@ -118,8 +125,7 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 4
 ELSE
 BEGIN
     RAISERROR('========== STEP 4: 35 BANKREF DRY ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('Dosya: prodREADY_ENERGY3007/35_bankref_resolve_abys.sql', 0, 1) WITH NOWAIT;
-    RAISERROR('Icinde: @DRY_RUN = 1; @AGR_ID = NULL;', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 1, @AGR_ID = NULL;
 END
 GO
 
@@ -131,7 +137,7 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 5
 ELSE
 BEGIN
     RAISERROR('========== STEP 5: 35 BANKREF APPLY ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('35_bankref_resolve_abys.sql → @DRY_RUN = 0; @AGR_ID = NULL;', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 0, @AGR_ID = NULL;
 END
 GO
 
@@ -143,8 +149,7 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 6
 ELSE
 BEGIN
     RAISERROR('========== STEP 6: 92 STG CLOSE DRY ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('Dosya: prodEnergy/90_afl_frk/92_stg_inv_pay_close_apply.sql', 0, 1) WITH NOWAIT;
-    RAISERROR('Icinde: @DRY_RUN = 1; @AGR_ID = NULL;', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 1, @AGR_ID = NULL;
 END
 GO
 
@@ -156,7 +161,7 @@ IF CONVERT(INT, SESSION_CONTEXT(N'post613_step')) <> 7
 ELSE
 BEGIN
     RAISERROR('========== STEP 7: 92 STG CLOSE APPLY ==========', 0, 1) WITH NOWAIT;
-    RAISERROR('92_stg_inv_pay_close_apply.sql → @DRY_RUN = 0;', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 0, @AGR_ID = NULL;
 END
 GO
 
@@ -172,16 +177,23 @@ BEGIN
     /* GATE tekrar (opsiyonel guvence) */
     EXEC dbo.SP_MIG_597_GATE @AGR_ID = NULL;
 
+    IF OBJECT_ID('dbo.SP_MIG_95_TTK_AFL_RAPOR', 'P') IS NOT NULL
+        EXEC dbo.SP_MIG_95_TTK_AFL_RAPOR;
+    ELSE
+        RAISERROR('SP_MIG_95_TTK_AFL_RAPOR yok — once 95 deploy', 16, 1);
+
+    IF OBJECT_ID('dbo.SP_MIG_99_AFL_EN_FRK', 'P') IS NOT NULL
+        EXEC dbo.SP_MIG_99_AFL_EN_FRK @OnlyDiff = 1;
+    ELSE
+        RAISERROR('SP_MIG_99_AFL_EN_FRK yok — once 99 deploy', 16, 1);
+
     /* Sozlesme FRK — sadece farklar */
     IF OBJECT_ID('dbo.SP_AGR_FRK_ALL', 'P') IS NOT NULL
         EXEC dbo.SP_AGR_FRK_ALL @Agr = NULL, @OnlyDiff = 1, @WriteTable = 1, @ReturnResult = 0;
     ELSE
         RAISERROR('SP_AGR_FRK_ALL yok — once 97_agr_frk_all.sql deploy', 16, 1);
 
-    RAISERROR('Dosya check: 90_check_queries.sql | 95_ttk... | 99_afl_vs_en...', 0, 1) WITH NOWAIT;
-    RAISERROR('  prodREADY_ENERGY3007/90_check_queries.sql', 0, 1) WITH NOWAIT;
-    RAISERROR('  90_afl_frk/95_ttk_inv_afl_fatura_rapor.sql', 0, 1) WITH NOWAIT;
-    RAISERROR('  90_afl_frk/99_afl_vs_en_kalan_frk.sql', 0, 1) WITH NOWAIT;
+    RAISERROR('Opsiyonel heal: SP_MIG_INV_DV_FROM_INCOME / SP_MIG_93_AGR_FEE_COLLECTED', 0, 1) WITH NOWAIT;
 END
 GO
 
@@ -218,18 +230,27 @@ GO
 
 /*
 --- Hizli kopyala (613 BITTIKTEN SONRA, sira) ---
+-- Once: sqlcmd -i 40_... / 35_... / 92_...  (CREATE OR ALTER PROCEDURE)
 
--- 40 APPLY: dosyada @DRY_RUN=0 sonra:
---   sqlcmd -S 172.16.1.195 -d energy -C -I -f 65001 -i 40_installment_plan_pay_apply.sql
+EXEC dbo.SP_MIG_40_IPP_APPLY @DRY_RUN = 1, @AGR_ID = NULL;
+EXEC dbo.SP_MIG_40_IPP_APPLY @DRY_RUN = 0, @AGR_ID = NULL;
 
--- 35 APPLY: dosyada @DRY_RUN=0
---   sqlcmd ... -i 35_bankref_resolve_abys.sql
+EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 1, @AGR_ID = NULL;
+EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 0, @AGR_ID = NULL;
 
--- 92 APPLY: dosyada @DRY_RUN=0
---   sqlcmd ... -i ..\90_afl_frk\92_stg_inv_pay_close_apply.sql
+EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 1, @AGR_ID = NULL;
+EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 0, @AGR_ID = NULL;
+
+-- Heal (opsiyonel):
+EXEC dbo.SP_MIG_INV_DV_FROM_INCOME @DryRun = 1, @Agr = NULL;
+EXEC dbo.SP_MIG_INV_DV_FROM_INCOME @DryRun = 0, @Agr = NULL;
+EXEC dbo.SP_MIG_93_AGR_FEE_COLLECTED @DryRun = 1, @Agr = NULL;
+EXEC dbo.SP_MIG_93_AGR_FEE_COLLECTED @DryRun = 0, @Agr = NULL;
 
 -- Validate:
 EXEC dbo.SP_MIG_597_GATE @AGR_ID = NULL;
+EXEC dbo.SP_MIG_95_TTK_AFL_RAPOR;
+EXEC dbo.SP_MIG_99_AFL_EN_FRK @OnlyDiff = 1;
 EXEC dbo.SP_AGR_FRK_ALL @Agr = NULL, @OnlyDiff = 1, @WriteTable = 1;
 
 --- 613 hâlâ kosuyorsa sadece ---

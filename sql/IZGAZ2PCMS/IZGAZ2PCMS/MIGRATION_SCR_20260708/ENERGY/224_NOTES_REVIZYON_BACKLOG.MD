@@ -1,9 +1,66 @@
 # Zorunlu revizyon backlog — atlama YASAK
 
-**Kural:** Canlıda öğrenilen fix `_tmp`’te kalmaz. Aynı gün `prodREADY_*` + snapshot sync + 195 kopya.  
+**Kural:** Canlıda öğrenilen fix `_tmp`’te kalmaz. Aynı gün `prodREADY_`* + snapshot sync + 195 kopya.  
 **Bu cutover’da kaçanlar** aşağıda; kapanmadan “DONE” yazma.
 
-Son güncelleme: 2026-08-09 (R15 + sonraki aktarım hazırlık notu)
+Son güncelleme: 2026-08-11 (R23 heal/FRK SP) · cutover not: `CUTOVER_ONE_PAGE.md` + `NOTES_CUTOVER_DAY_20260811.md`
+
+---
+
+## 2026-08-11 05:00 — DATA AKTARIM TESTİ (kullan)
+
+**Sunucu:** `172.16.1.196` · DB `energy`  
+**Amaç:** TTK master = O59 `07082026` dump; FRK/spot join yanlış grain’e düşmesin.
+
+### TTK reload (2026-08-10 yapıldı — 196)
+
+
+|                |                                                                                   |
+| -------------- | --------------------------------------------------------------------------------- |
+| **Kaynak**     | `energyOLD.dbo.TUKETIM_TUTAR_KONTROL_07082026`                                    |
+| **Hedef**      | `energy.dbo.TUKETIM_TUTAR_KONTROL` (DROP + SELECT INTO)                           |
+| **Satır**      | **72.019.250** (src = dst)                                                        |
+| **Index**      | `IX_…_ACCOUNT_ID`, `IX_…_AGREEMENT_ID`                                            |
+| **Script/log** | `_tmp/replace_ttk_from_energyold.sql` · `_tmp/replace_ttk_from_energyold_196.log` |
+
+
+Önceki `energy.TTK` (~71.87M) silindi; yarınki test **bu** tabloyu kullanır.
+
+### Join grain (yanlış = sahte miss)
+
+```text
+ACCOUNT_ID = INVOICE.ABYS_ACCOUNT_ID = AFL.FATURAID = CS_ACCOUNT.ID
+❌  INVOICE.LREF = ACCOUNT_ID   (LREF fatura PK; account değil)
+```
+
+### TTK var / INV yok (diag 196)
+
+
+|                            | Adet        | Not                                 |
+| -------------------------- | ----------- | ----------------------------------- |
+| Toplam miss                | **757.224** | Join doğru; tip BIGINT=BIGINT       |
+| EMANET `ACCRUE_TYPE_ID=14` | **757.114** | FRK’da `@ExcludeEmanet=1` — gürültü |
+| TAKSIT `10`                | **110**     | TAH/KALAN ~0                        |
+| KALAN≠0                    | **4**       | Hepsi emanet; ~916 TL               |
+| AFL hit (miss set)         | **702**     | Hepsi `MIG_IN_SCOPE=0`              |
+
+
+Spot (emanet hariç):
+
+```sql
+-- TTK'da var, INV'de yok (borç/FRK için anlamlı dilim)
+SELECT COUNT_BIG(*)
+FROM energy.dbo.TUKETIM_TUTAR_KONTROL b WITH (NOLOCK)
+WHERE ISNULL(b.ACCRUE_TYPE_ID, -1) <> 14
+  AND NOT EXISTS (
+      SELECT 1 FROM energy.dbo.LS_005_01_INVOICE i WITH (NOLOCK)
+      WHERE i.ABYS_ACCOUNT_ID = b.ACCOUNT_ID
+  );
+-- beklenen ~110
+```
+
+Diag: `_tmp/diag_ttk_missing_inv.sql` · `_tmp/diag_ttk_missing_inv_196.txt`  
+Paket FRK: `90_afl_frk/94_tuketim_tutar_frk.sql` (O59 ↔ energy TTK; emanet exclude).
 
 ---
 
@@ -20,11 +77,11 @@ Son güncelleme: 2026-08-09 (R15 + sonraki aktarım hazırlık notu)
 9. `RAISERROR` parametresi: sadece INT/string değişken — **BIT / CAST ifade YASAK**
 10. Ağır UPDATE/INSERT: `OPTION (MAXDOP 8)` (sunucu max 48 CXSYNC öldürür)
 11. 613 kuyruk: **sadece açık borçlu AGR** (`pending_open_debt`)
-12. Paket yolu: `prodREADY_*` → `_sync_snapshot` → `_deploy_195` → 195 `MIGRATION_SCR_*` (**yalnız** CTAS/ENERGY/REPORT; `SRC_*` yasak)
+12. Paket yolu: `prodREADY_*` → `_sync_snapshot` → `_deploy_195` → 195 `MIGRATION_SCR_*` (**yalnız** CTAS/ENERGY/REPORT; `SRC_`* yasak)
 13. 613 canonic: `prodREADY_ENERGY3007/613_INSTALLMENT_DEBT_SPLIT__pilot_agr.sql` (v6+)
-14. 597 adopt: hint LREF sadece **`IOCODE<>0`** (borç collide → identity); aksi R15
+14. 597 adopt: hint LREF sadece `IOCODE<>0` (borç collide → identity); aksi R15
 15. FULL 597 öncesi: **20b NCIX OFF** zorunlu; bitince **20c** — açıken 30M INSERT ölür
-16. Bad PAY map varken **`@CLEAN=1` YASAK** (map→PT DELETE borç siler) → önce `20e`
+16. Bad PAY map varken `@CLEAN=1` **YASAK** (map→PT DELETE borç siler) → önce `20e`
 17. Scalar bank FN / FULL INV DRY mismatch tarama YASAK (`35` R13)
 18. MGR `LS_OV_ID_MAP` HEAP: `UPDATE TOP+IS NULL` rescan YASAK → `20a` keyset
 
@@ -36,15 +93,17 @@ Bu cutover’da pahalıya öğrenildi; **bir sonraki FULL başlamadan** aşağı
 
 ### A) Deploy / paket (P0 — FULL öncesi)
 
-| # | İş | Neden |
-|---|-----|--------|
-| A1 | `28_DEPLOY_597` = adopt `IOCODE<>0` gövde (R15) sunucuda | Eski adopt → 30M sahte MAP, saatlerce 0 ilerleme |
-| A2 | `20e` + `NOTES_597_OPS_HEAL` R15 sırası pakette / 195 SRC | Belirti tekrarında heal yolu hazır |
-| A3 | `20a` keyset (`MIG_20A_STG_KEYS`) deploy | MGR HEAP null-fill |
-| A4 | `35` JOIN-only DRY (FULL’da INV COUNT/TOP yok) | Scalar FN / 140M tarama |
-| A5 | `613` v6 + `00e` (`MIG_613_ERR`) + open-debt `50e` | 81k boş tur + CXSYNC |
-| A6 | `_sync_snapshot` + `_deploy_195` → 195 CTAS/ENERGY/REPORT = repo | Eski `SRC_*` / drift tuzağı |
-| A7 | **R12** bitir: 35/40/92 → SP + `10f` EXEC | Dosya/@DRY_RUN karışıklığı |
+
+| #   | İş                                                               | Neden                                            |
+| --- | ---------------------------------------------------------------- | ------------------------------------------------ |
+| A1  | `28_DEPLOY_597` = adopt `IOCODE<>0` gövde (R15) sunucuda         | Eski adopt → 30M sahte MAP, saatlerce 0 ilerleme |
+| A2  | `20e` + `NOTES_597_OPS_HEAL` R15 sırası pakette / 195 SRC        | Belirti tekrarında heal yolu hazır               |
+| A3  | `20a` keyset (`MIG_20A_STG_KEYS`) deploy                         | MGR HEAP null-fill                               |
+| A4  | `35` JOIN-only DRY (FULL’da INV COUNT/TOP yok)                   | Scalar FN / 140M tarama                          |
+| A5  | `613` v6 + `00e` (`MIG_613_ERR`) + open-debt `50e`               | 81k boş tur + CXSYNC                             |
+| A6  | `_sync_snapshot` + `_deploy_195` → 195 CTAS/ENERGY/REPORT = repo | Eski `SRC_*` / drift tuzağı                      |
+| A7  | **R12** bitir: 35/40/92 → SP + `10f` EXEC                        | **DONE 2026-08-11**                              |
+
 
 ### B) FULL run sırası (değiştirme)
 
@@ -78,58 +137,75 @@ WHERE ISNULL(CANCELED,0)=0;
 
 ### D) Bu aktarım semptom → aksiyon (cheat sheet)
 
-| Semptom | Aksiyon |
-|---------|---------|
+
+| Semptom                                 | Aksiyon                                                      |
+| --------------------------------------- | ------------------------------------------------------------ |
 | 597 LOADED saatlerce artmıyor; MAP dolu | Probe bad map → `20e` → adopt deploy → 20b → ALL **CLEAN=0** |
-| `E597=FAIL` + sonra `E597G=GATE_PASS` | Otorite GATE; ALL log’una bakma |
-| 35 DRY 100M+ read / FN_MIG_RESOLVE | Dosya R13 mi? KILL; FULL DRY INV skip |
-| 20a 5k batch / 15 sn tur | `@Batch=500000` + keyset dosya; Implicit OFF |
-| 613 60k+ pending, INST yok | open-debt filter; `MIG_613_ERR` |
-| CXSYNC_PORT DOP 48 | `MAXDOP 8`; Implicit OFF; NCIX kapalı mı |
-| IPP 721k aday / 78k update | Beklenen join miss; blocker değil |
+| `E597=FAIL` + sonra `E597G=GATE_PASS`   | Otorite GATE; ALL log’una bakma                              |
+| 35 DRY 100M+ read / FN_MIG_RESOLVE      | Dosya R13 mi? KILL; FULL DRY INV skip                        |
+| 20a 5k batch / 15 sn tur                | `@Batch=500000` + keyset dosya; Implicit OFF                 |
+| 613 60k+ pending, INST yok              | open-debt filter; `MIG_613_ERR`                              |
+| CXSYNC_PORT DOP 48                      | `MAXDOP 8`; Implicit OFF; NCIX kapalı mı                     |
+| IPP 721k aday / 78k update              | Beklenen join miss; blocker değil                            |
+
 
 ### E) Bilinçli residual (sonraki FULL’da da gelebilir)
 
 - 613 inactive / borçsuz plan AGR  
 - IPP join miss (split yok / MAIN_LREF)  
 - Plan `INVOICE_REF` NULL (~10k band)  
-- MGR `LS_OV_ID_MAP` HEAP (clustered SRC_KEY = sonraki CTAS/DDL adayı — R16 TODO)
+- MGR `LS_OV_ID_MAP` HEAP → **00i** / R16 DONE (dump sonrası çalıştır)
 
-| ID | Durum | İş |
-|----|--------|-----|
-| R16 | TODO — sonraki FULL öncesi | MGR `LS_OV_ID_MAP` HEAP → clustered `SRC_KEY` (003/CTAS hizası); 20a/MAP sync hızı |
-| R17 | TODO — sonraki FULL öncesi | `SSMS_TAHSILAT` / `RUN_ORDER`: 20b→597→probe→20e branch + CLEAN=0 kuralı gömülü |
-| R18 | TODO — sonraki FULL öncesi | 597 INSERT kalan `MAXDOP 24` → 8 (CLEAN/delete path) |
+
+| ID  | Durum                      | İş                                                                                 |
+| --- | -------------------------- | ---------------------------------------------------------------------------------- |
+| R16 | **DONE 2026-08-11**        | MGR `LS_OV_ID_MAP` HEAP → clustered `SRC_KEY` (`00i` + `00_pre_indexes`)              |
+| R17 | **DONE 2026-08-11**        | `SSMS_TAHSILAT` / `RUN_ORDER`: 20b→597→probe→20e branch + CLEAN=0 kuralı gömülü    |
+| R18 | **DONE 2026-08-11**        | 597 INSERT CLEAN/delete + kalan `MAXDOP 24` → 8                                                   |
+
 
 ---
 
 ## BACKLOG (kod — ana dosyaya göm)
 
-| ID | Durum | Dosya | İş |
-|----|--------|-------|-----|
-| R01 | DONE | `20_597_INSERT.sql` | PAY hint MERGE OUTPUT + MAP_OUT; batch-first FORCE ORDER; adopt |
-| R02 | DONE | `22_597_GATE.sql` | CROSSREF `IOCODE<>0`; MAXDOP 8 |
-| R03 | DONE | `50e_TAKSIT_EXECS.sql` | open-debt pending filter |
-| R04 | DONE | `50e_613_RESUME_OPEN_DEBT_ONLY.sql` | resume-only script |
-| R05 | DONE | `40_…pay_apply.sql` | RAISERROR BIT → `@DryRunInt` |
-| R06 | DONE | `40_…pay_apply.sql` | UPDATEs: `IOCODE=0`, `INST_NR>0`, `OPTION (MAXDOP 8)` |
-| R07 | DONE | `613…v6` + `00e` + `50e` | MAXDOP/IOCODE; `MIG_613_ERR`; CATCH→tablo; canonic 3007 path |
-| R08 | DONE | `NOTES_597_OPS_HEAL.md` | E597 FAIL vs E597G GATE_PASS |
-| R09 | DONE | `20d_597_LOADED_MAP_HEAL.sql` + notes | LOADED↔MAP NCIX-off kalıbı |
-| R10 | DONE | `35_bankref_resolve_abys.sql` | `@DryRunInt`; MAXDOP 8; `IOCODE=0`; dış TRAN kaldırıldı |
-| R11 | DONE | `92_stg_inv_pay_close_apply.sql` | physical `MIG_92_STG_*`; MAXDOP 8; `IOCODE=0` |
-| R12 | TODO — **cutover bitince** | 35 / 40 / 92 (+ opsiyonel 20c) | Script → `CREATE OR ALTER PROCEDURE`; `10f` checklist; `SSMS_POST` sadece `EXEC @DRY_RUN,@AGR_ID` |
-| R13 | DONE (2026-08-09) | `35_bankref…` | DRY sayım: scalar `FN_MIG_RESOLVE_BANK_LREF` → `LS_BANK.ABYS_ID` JOIN (RBAR öldürdü) |
-| R14 | DONE (2026-08-09) | `20a_…FAST_FILL` | MGR HEAP: `UPDATE TOP+IS NULL` rescan → energy `SRC_KEY` keyset + `MIG_20A_STG_KEYS` |
-| R15 | DONE (2026-08-09) | `20`/`20d` adopt + `20e` heal + ops notes | PAY hint adopt IOCODE<>0; bad map→borç null heal; `@CLEAN=1` borç silme uyarısı |
-| R19 | DONE (2026-08-10) | `91` + `91e` + `613` | DUP GHOST (odeme ABYS→debt) asla KEEP; `91e` findings heal; taksit PAID clamp |
 
-### R12 not (cutover bitince)
+| ID  | Durum                      | Dosya                                     | İş                                                                                                |
+| --- | -------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| R01 | DONE                       | `20_597_INSERT.sql`                       | PAY hint MERGE OUTPUT + MAP_OUT; batch-first FORCE ORDER; adopt                                   |
+| R02 | DONE                       | `22_597_GATE.sql`                         | CROSSREF `IOCODE<>0`; MAXDOP 8                                                                    |
+| R03 | DONE                       | `50e_TAKSIT_EXECS.sql`                    | open-debt pending filter                                                                          |
+| R04 | DONE                       | `50e_613_RESUME_OPEN_DEBT_ONLY.sql`       | resume-only script                                                                                |
+| R05 | DONE                       | `40_…pay_apply.sql`                       | RAISERROR BIT → `@DryRunInt`                                                                      |
+| R06 | DONE                       | `40_…pay_apply.sql`                       | UPDATEs: `IOCODE=0`, `INST_NR>0`, `OPTION (MAXDOP 8)`                                             |
+| R07 | DONE                       | `613…v6` + `00e` + `50e`                  | MAXDOP/IOCODE; `MIG_613_ERR`; CATCH→tablo; canonic 3007 path                                      |
+| R08 | DONE                       | `NOTES_597_OPS_HEAL.md`                   | E597 FAIL vs E597G GATE_PASS                                                                      |
+| R09 | DONE                       | `20d_597_LOADED_MAP_HEAL.sql` + notes     | LOADED↔MAP NCIX-off kalıbı                                                                        |
+| R10 | DONE                       | `35_bankref_resolve_abys.sql`             | `@DryRunInt`; MAXDOP 8; `IOCODE=0`; dış TRAN kaldırıldı                                           |
+| R11 | DONE                       | `92_stg_inv_pay_close_apply.sql`          | physical `MIG_92_STG_*`; MAXDOP 8; `IOCODE=0`                                                     |
+| R19 | DONE                       | CTAS `10–12` + `92_INV_DV…HEAL` + `925_DIAG` | TYPE109/111 DV=TOTAL_DV; Energy Faz A/B; soft diag                                              |
+| R21 | **PARTIAL**                 | `LS_AGR_GUARANTY` / `026` + Energy 311      | CTAS kod DONE (23032 hariç, 195 ~07:57); Oracle @@026 + 311/PCMS spot AÇIK — §2b0 |
+| R22 | **DONE 2026-08-11**         | IX sırası + SP-only orch                      | `26*` SP + RUN_ORDER/30c/SSMS/ONE_PAGE hizalı; P2 `CUTOVER_ALL` açık |
+| R23 | **DONE 2026-08-11**         | Heal/FRK script → SP                          | `20e`/`92DV`/`93`/`95`/`99` → EXEC; `97` zaten SP |
+| R12 | **DONE 2026-08-11**        | 35 / 40 / 92 (+ `10f` / `SSMS_POST`)       | `SP_MIG_35_BANKREF_RESOLVE` / `SP_MIG_40_IPP_APPLY` / `SP_MIG_92_STG_CLOSE`; POST = EXEC |
+| R13 | DONE (2026-08-09)          | `35_bankref…`                             | DRY sayım: scalar `FN_MIG_RESOLVE_BANK_LREF` → `LS_BANK.ABYS_ID` JOIN (RBAR öldürdü)              |
+| R14 | DONE (2026-08-09)          | `20a_…FAST_FILL`                          | MGR HEAP: `UPDATE TOP+IS NULL` rescan → energy `SRC_KEY` keyset + `MIG_20A_STG_KEYS`              |
+| R15 | DONE (2026-08-09)          | `20`/`20d` adopt + `20e` heal + ops notes | PAY hint adopt IOCODE<>0; bad map→borç null heal; `@CLEAN=1` borç silme uyarısı                   |
+| R16 | DONE (2026-08-10)          | `22_597_GATE.sql`                         | PAY_PT ENERGY_LREF→IOCODE=0 → GATE_FAIL (sahte PASS engeli)                                       |
+| R19 | DONE (2026-08-10)          | `91` + `91e` + `613`                      | DUP GHOST (odeme ABYS→debt) asla KEEP; `91e` findings heal; taksit PAID clamp                     |
+| R20 | DONE (2026-08-10)          | `13_590_TAM_MAIN_CLOSE` + `19_590_ALL`    | TAM+TYPE92+AFL≈0 → MAIN PT PAID=PAYABLE + CLOSED; E590 WIRE sonrası                               |
+| R17 | DONE (2026-08-11)          | `SSMS_TAHSILAT` + `RUN_ORDER` + cutover   | 20b→597→probe→20e/@CLEAN=0→20c gömülü; bad_map severity-16 DUR                                    |
+| R18 | DONE (2026-08-11)          | `20_597_INSERT` CLEAN + kalan             | DELETE/MAP/STG/DEBT_PAID `MAXDOP 24` → **8** (v5e/v5f)                                            |
+| R22 | DONE (2026-08-11)          | `26*` + drivers + wrappers                | PRECHECK/ENSURE/NCIX/IP_AGR SP; 571→572…; cutover EXEC-only (P2 orch opsiyonel)                    |
+| R12 | DONE (2026-08-11)          | `35`/`40`/`92` → SP + `SSMS_POST`/`10f`   | EXEC `@DRY_RUN`,`@AGR_ID`; deploy dosyaları CREATE OR ALTER                                       |
+| R16b| DONE (2026-08-11)          | `00i_mgr_ov_id_map_clustered` + pre_ix    | MGR HEAP→PK CLUSTERED SRC_KEY (hazırlık satırı R16 TODO kapatıldı)                                |
+
+
+### R12 not (DONE)
 
 - Amaç: sunucu gövdesi = paket; DRY/APPLY parametre; “hangi dosya / DRY=0 unuttuk” yok.
 - Kalıp: `NN_xxx.sql` → `SP_MIG_35_BANKREF_RESOLVE` / `SP_MIG_40_IPP_APPLY` / `SP_MIG_92_STG_CLOSE`.
-- Driver: `EXEC … @DRY_RUN=1|0, @AGR_ID=NULL|-1|>0`.
-- Mid-cutover’da **yapma** — 35/92 script ile bitsin; sonra taşı.
+- Driver: `SSMS_POST_613` step 2–7 = `EXEC … @DRY_RUN=1|0, @AGR_ID=NULL`.
+- Deploy once: 35/40/92 sql → sonra POST EXEC.
 
 ---
 
@@ -147,6 +223,7 @@ WHERE ISNULL(CANCELED,0)=0;
 10. Bad map ile 597 resume / adopt IOCODE bakmadan → 30M sahte LOADED  
 11. 20a `@Batch=5000` veya Implicit Transactions ON  
 12. FULL 597’yi NCIX açıkken koşmak  
+13. **CTAS patlayınca `@00_run_all` baştan** — TEMP/DOP/tek adım FAIL iken master wipe; doğru: `NOTES_CTAS_NO_RESTART.md` + `MIG_CTAS_LOG` resume  
 
 ---
 
@@ -155,15 +232,23 @@ WHERE ISNULL(CANCELED,0)=0;
 - [x] R06–R11 kodlandı  
 - [x] `_sync_snapshot.ps1` (`MIGRATION_SCR_20260708`) — 2026-08-09  
 - [x] 195 temiz mirror: `_deploy_195.ps1` (CTAS/ENERGY/REPORT; `SRC_*` kaldırıldı)  
-- [ ] `28_DEPLOY_597` (GATE MAXDOP sonrası — opsiyonel bu cutover)  
-- [ ] 613 SP deploy (`00e` + `613…v6`) — sonraki 613 koşusunda  
-- [ ] G1–G9 kabul kapıları (`NOTES_CUTOVER_DEV_PLAN_20260809.md`)  
+- [x] CTAS paket hazır + 195 sync (O20/O30/DV/GUAR/FEE) — 2026-08-11 ~07:57  
+- [x] `CUTOVER_ONE_PAGE.md` + `NOTES_CUTOVER_DAY_20260811.md`  
+- [ ] `28_DEPLOY_597` sunucuda R15/R16 gövde doğrula (05:00 preflight)  
+- [ ] 613 SP deploy (`00e` + `613…v6`) — 613 koşusunda  
+- [ ] G1–G9 kabul kapıları (`CUTOVER_ONE_PAGE` / plan §2F)  
+- [ ] Spot imza (AGR 3 / 412056 / DV / CANCEL_REV)  
 
 ---
 
 ## Referans
 
+- One-page: `CUTOVER_ONE_PAGE.md`  
+- Gün: `NOTES_CUTOVER_DAY_20260811.md`  
 - Plan: `NOTES_CUTOVER_DEV_PLAN_20260809.md`  
 - Ops heal: `NOTES_597_OPS_HEAL.md`  
 - Perf: `NOTES_597_PERF_SAFE.md`  
-- Exit: `../prodREADY_ENERGY3007/EXIT_MAP.md`  
+- AFL residual: `../90_afl_frk/NOTES_AFL_HEAL_TEST_20260811.md`  
+- IX/SP orch plan: `NOTES_IX_SP_ORCH_PLAN_20260811.md` (R22)  
+- Exit: `../prodREADY_ENERGY3007/EXIT_MAP.md`
+

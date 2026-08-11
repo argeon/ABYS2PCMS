@@ -51,26 +51,30 @@ ORDER BY LOG_TS DESC;
 
 **Kalıp:** `20e_597_PAY_PT_BAD_MAP_HEAL.sql` + adopt fix (`20_597_INSERT` / `20d`).
 
-### 195 güvenli sıra
+### 195 güvenli sıra (2026-08-09 gece — go)
 
 ```text
-0) Probe (beklenen: bad map ~30M, IOCODE=1 ~37M)
-1) 20e @DRY_RUN=1 → sayım
-2) 20e @DRY_RUN=0 → EN(+MGR) bad PAY* map NULL + STG truncate
-   (borç PT silinmez; iyi IOCODE=1 map kalır)
-3) 28_DEPLOY_597.sql  (veya en az 20_597_INSERT — adopt IOCODE<>0)
-4) 20b_PAYTRANS_NCIX_DISABLE.sql
-5) EXEC SP_MIG_597_ALL @AGR_ID=NULL, @CLEAN=0, @DEBUG=1, @BatchSize=250000
-   ★ CLEAN=0 zorunlu (TAH/iyi PAY silme; bad map zaten null)
-6) EXEC SP_MIG_597_GATE @AGR_ID=NULL
-7) 20c_PAYTRANS_NCIX_REBUILD.sql
-8) Kabul:
-     PAY_PT map → IOCODE=0  = 0
-     IOCODE=1 ≈ LS_OV_PAY_PT (~66.8M)
-     PT toplam ≈ 196 (~140M)
+✓ Adopt fix 195’te deploy (SP_MIG_597_INSERT 22:27, IOCODE<>0)
+✓ PAYTRANS NCIX zaten OFF (15 disabled) — 20b no-op / yine de koşulabilir
+0) bad_map hâlâ ~30.036.120 — 20e şart
+1) 20e_597_PAY_PT_BAD_MAP_HEAL.sql  (@DRY_RUN=0) → POST bad=0
+2) EXEC SP_MIG_597_ALL @AGR_ID=NULL, @CLEAN=0, @DEBUG=1, @BatchSize=250000
+   ★ CLEAN=1 YASAK | Messages: collide→identity / PAY_PT(identity)= artmalı
+3) GATE_PASS yetmez — kabul sorgusu:
+     bad_map IOCODE=0 = 0
+     IOCODE=1 ≈ 66.8M
+     PT toplam ≈ 140M
+4) 20c_PAYTRANS_NCIX_REBUILD.sql
 ```
 
 **Yapma:** `20a` (sadece TAH_INV null fill — bu anomaliyi çözmez).  
 **Yapma:** `20d` adopt’u heal öncesi eski gövdeyle — borç adopt tekrarlar (redeploy şart).
+
+### Tekrar düşmeme (zorunlu)
+
+1. **INSERT adopt** yalnız `pt.IOCODE <> 0`; borç collide → identity (`20_597_INSERT` / `20d`).
+2. **GATE** `PAY_PT map→IOCODE=0` → `GATE_FAIL` (`22_597_GATE` R15) — ENERGY_LREF dolu yetmez.
+3. Kabul: `bad_map=0` + `IOCODE=1 ≈ LS_OV_PAY_PT` — yalnız `GATE_PASS` yazısına güvenme.
+4. FULL sıra: `20b` → ALL → GATE → **`20c`** (WIRE’ı index’siz bırakma bilinci; ABYS NCIX WIRE öncesi açılabilir).
 
 **Sonraki aktarım:** FULL öncesi A1–A7 + probe C — `NOTES_REVIZYON_BACKLOG.md` →「SONRAKI AKTARIM — hazırlık」.

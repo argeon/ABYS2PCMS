@@ -53,15 +53,16 @@ Ayrı klasör notu: `patch/README.md` (bu ayrımı sabitleyen pointer; dosyalar 
 
 `NOTES_CANLI_AKTARIM_REV_20260807` maddeleri. Bunları `98_TEST` veya residual patch ile “çözülmüş” saymak **risk**: full reload’da aynı FRK geri gelir.
 
-| # | Konu | Doğru yer | Patch/heal ile kapatma |
-|---|------|-----------|-------------------------|
-| 1 | TAM+TYPE92 → MAIN PT/CLOSED | O20/590/597 WIRE veya O51 STG kuralı | `98_TEST_tam` sadece test |
-| 2 | Sahte ASIM (gecikme tah dışı) | `oracleCTAS3007/20_ls_eksilten_overlay` KIND/tah.tut | `98_TEST_asim` sadece test |
-| 3 | Emanet mahsup IL 162+1936 | O30 mahsup + INVLINES üretimi | Energy `LS_EMANET` INSERT YOK (EXIT_MAP) |
-| 4 | TYPE110 zinciri | O60 dump + E610 — **paket D2** | Dump yoksa EXEC etme |
-| 5 | FRK KIND/ACIKLAMA | `97` SP (NET öncelik) — rapor kalitesi | Veri heal değil |
+| # | Konu | Doğru yer | Durum |
+|---|------|-----------|--------|
+| 1 | TAM+TYPE92 → MAIN PT/CLOSED | E590 `13_TAM_MAIN_CLOSE` (R20) | **DONE** |
+| 2 | Sahte ASIM (gecikme tah dışı) | `20_ls_eksilten` `tah.tut` ∈(1,3,10,41) | **DONE** CTAS 2026-08-11 |
+| 3 | Emanet mahsup IL 162+1936 | O30 `LS_OV_TAH_INVLINES` + 597 TAH_IL | **DONE** CTAS+597 2026-08-11 |
+| 4 | TYPE110 zinciri | O60 dump + E610 — **paket D2** | AÇIK (dump yoksa ATLA) |
+| 5 | FRK KIND/ACIKLAMA | `97` SP (NET öncelik) — rapor kalitesi | rapor kalitesi |
+| 6 | AGR_GUARANTY TOTAL−damga | CTAS `026` 23032 hariç | **PARTIAL R21** (kod DONE; koşu/311 açık) |
 
-**Bu dosyada / bu turda bilerek yapılmayan:** O20 KIND CASE rewrite, 590/597’ye 98_TEST mantığı gömme, mahsup IL üretimi — ayrı CTAS/overlay PR; notlarla çelişen yarım blok riski.
+**CTAS paket+195 (2026-08-11 ~07:57):** O20/O30/DV/GUAR/FEE kod sync. Heal/`98_TEST` ile “çözüldü” sayma YASAK.
 
 ---
 
@@ -88,5 +89,6 @@ EXEC     571→581→575→576 → 590_ALL → 597_ALL → GATE_PASS
          → E610 ALL (D2) → 35 bank → 611/613/40 → 92 STG
 VALIDATE 95 → 99 → 97 @OnlyDiff=1 → spotlar
 PATCH    yalnız residual gerekirse (91/91b/91c→91d) — 98_TEST YOK
-AÇIK     #1–3 kod işi bitmeden “FRK bitti” deme
+AÇIK     #4 TYPE110 (O60) + R21 koşu/311 bitmeden “FRK bitti” deme
+         (#1–3 + DV/FEE CTAS kod DONE 2026-08-11)
 ```

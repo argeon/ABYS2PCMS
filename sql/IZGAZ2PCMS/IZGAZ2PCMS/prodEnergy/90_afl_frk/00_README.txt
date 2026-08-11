@@ -79,6 +79,12 @@ FRK okuma (hizli):
   DELTA_TAH_EKS = overlay/IADE | DELTA_TAH_NET = gercek tah
   DELTA_KALAN(_EKS/_NET) = acik PT | EN_IADE/TYPE92 = TAM | OV KIND ASIM ≠ mahsup
 
+Rapor — CLOSED=1 + LASTPAIDDATE NULL dayanak
+----
+100_closed_lpd_null_dayanak.sql  → REPORT/100_CLOSED_LPD_NULL_DAYANAK.SQL
+  PAY_0 = zero-payable (AFL degil) | PAY_NZ = D/C/B/F/X/Y sinif
+  AFL demek icin log hit (91f/g/i / TAM) veya CANCEL_REV+AFL≈0 imza
+
 PATCH residual (EXEC zincirine koyma):
   91f_en_gt_afl_kalan_heal.sql — EN_GT_AFL + AFL≈0 → MAIN PT close (@DryRun=1→0)
   91g_en_gt_afl_partial_heal.sql — EN_GT_AFL + AFL>0 → FIFO excess PAID (AFL tutari acik)

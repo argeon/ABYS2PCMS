@@ -1,22 +1,21 @@
-/* ============================================================
-   FILE : prodEnergy/90_afl_frk/95_ttk_inv_afl_fatura_rapor.sql
-   SSMS — 1 fatura = 1 satir
-   AFL.BALANCE + INV.PAYABLETOTAL + PT.PAYABLE/PAID/KALAN + BORC_DURUM
-
-   PT hesabi (597 ile ayni):
-     IOCODE=0 AND CANCELED=0 AND CANCELLATIONPAYMENT=0
-     → CANCEL_REV (CP=1) borc toplamina GIRMEZ (sahte 2x fark olmaz)
-
-   Join: AFL.FATURAID = INV.ABYS_ACCOUNT_ID
-         TTK.ACCOUNT_ID = INV.ABYS_ACCOUNT_ID
-   ============================================================ */
+/* =============================================================================
+   90_afl_frk / 95_ttk_inv_afl_fatura_rapor.sql
+   CREATE OR ALTER PROCEDURE dbo.SP_MIG_95_TTK_AFL_RAPOR  (R23 2026-08-11)
+   1 fatura = 1 satir — TTK + AFL + INV + PT kalan fark raporu.
+   EXEC dbo.SP_MIG_95_TTK_AFL_RAPOR;
+   EXEC dbo.SP_MIG_95_TTK_AFL_RAPOR @Eps = 0.02;
+   ============================================================================= */
 USE energy;
 GO
-
-SET NOCOUNT ON;
-SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-
-DECLARE @Eps DECIMAL(18,2) = 0.02;
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_95_TTK_AFL_RAPOR
+    @Eps DECIMAL(18,2) = 0.02
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT
     inv.LREF                                              AS INV_LREF,
@@ -94,4 +93,7 @@ WHERE inv.TYPE in (119,121,86)
   )
 
 ORDER BY ABS(ISNULL(pt.PT_KALAN, 0) - ISNULL(afl.BALANCE, 0)) DESC;
+
+END
 GO
+/* EXEC dbo.SP_MIG_95_TTK_AFL_RAPOR; */

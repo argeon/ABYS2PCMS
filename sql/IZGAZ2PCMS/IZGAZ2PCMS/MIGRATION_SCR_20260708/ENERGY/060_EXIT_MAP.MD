@@ -70,7 +70,7 @@ Dump manifest 521/524 çağırır; 3007 RUN_ORDER bunları EXEC etmez.
 | 501 | `SP_MIGRATE_CS_READING_PLAN_OKUMA_BOLGE` | `CS_READING_PLAN` | `mgg_cbs_okuma_bolge` | ÖNKOŞUL |
 | 511 | `SP_MIGRATE_LS005_READING_INCOME` | `CS_READING_INCOME` | `LS_005_ReadingIncome` | ÖNKOŞUL |
 | 521 | `SP_MIGRATE_LS005_HHD_LOC_INV_TRAN` · `521_READ_HHD_LOC_INV_TRAN__migrate.sql` | `LS_READING` | `LS_005_01_hhd_loc_inv_tran` | ÖNKOŞUL |
-| 524 | `524_READ_HHD_MSTR__apply.sql` | `LS_OV_HHD_MSTR`, `LS_OV_HHD_TRAN_MAP` | `LS_005_01_hhd_to_hhd_mstr` + TRAN `read_no` | ÖNKOŞUL |
+| 524 | `SP_MIGRATE_LS005_HHD_MSTR` · `524_READ_HHD_MSTR__apply.sql` | `LS_OV_HHD_MSTR`, `LS_OV_HHD_TRAN_MAP` | `LS_005_01_hhd_to_hhd_mstr` + TRAN `read_no` | ÖNKOŞUL |
 | 530 | `SP_MIGRATE_LS005_READINGDATA` | `LS_READING` | reading-data | ÖNKOŞUL |
 | 531 | `SP_MIGRATE_LS005_CS_APPOINTMENT` | `LS_WORK` | `LS_005_01_CS_APPOINTMENT` | ÖNKOŞUL |
 | 533 | `SP_MIGRATE_LS005_II_APPOINTMENT` | `II_APPOINTMENT` | `LS_005_01_APPOINTMENT` | ÖNKOŞUL |
@@ -108,7 +108,8 @@ Dump manifest 521/524 çağırır; 3007 RUN_ORDER bunları EXEC etmez.
 
 **Hizalama:** [`../PAKET_PATCH_HIZALAMA.md`](../PAKET_PATCH_HIZALAMA.md) — PAKET vs PATCH vs AÇIK KOD.  
 **Patch (3007 EXEC yok):** `hotfix/03–04`, `91*`, `22b`, `98_TEST_*` — `patch/README.md`.  
-**Açık kod (heal yok):** `NOTES_CANLI_AKTARIM_REV_20260807` O20 ASIM · TAM MAIN · mahsup IL.
+**Açık kod (heal yok):** `NOTES_CANLI_AKTARIM_REV_20260807` O20 ASIM · mahsup IL.  
+**R20 DONE:** TAM MAIN close → `SP_MIG_590_TAM_MAIN_CLOSE` (E590).
 
 ### Diğer INV / LEGAL / INSTALLMENT (paket dışı)
 

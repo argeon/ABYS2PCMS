@@ -1,5 +1,6 @@
 ﻿-- =============================================================================
 -- prodREADY_ENERGY3007 / 35_bankref_resolve_abys.sql
+-- CREATE OR ALTER PROCEDURE dbo.SP_MIG_35_BANKREF_RESOLVE  (R12 2026-08-11)
 -- SMS BANK_ID → energy.dbo.LS_BANK.LREF  (3007: AGR veya NO_AGR=-1)
 --
 -- Kaynak (oncelik):
@@ -16,103 +17,109 @@
 -- Onkosul: 121 (LS_BANK.ABYS_ID), 571/597, izgazMGR erisim
 -- @DRY_RUN=1 sayim; 0=APPLY
 -- @AGR_ID: NULL=FULL | >0=AGR | -1=NO_AGR (NULL AGR + ACCOUNT)
+-- EXEC ornek:
+--   EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 1, @AGR_ID = NULL;
+--   EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 0, @AGR_ID = NULL;
 -- =============================================================================
 USE energy;
 GO
-SET NOCOUNT ON;
-SET XACT_ABORT ON;
 SET QUOTED_IDENTIFIER ON;
-SET IMPLICIT_TRANSACTIONS OFF;
-
-DECLARE @DRY_RUN BIT = 1;
-DECLARE @AGR_ID  BIGINT = NULL;  -- NULL=FULL | 197168=AGR | -1=NO_AGR
--- SET @AGR_ID = 197168;
--- SET @AGR_ID = -1;
-DECLARE @Prefix  SYSNAME = N'LS_005_01';
-DECLARE @Inv SYSNAME = @Prefix + N'_INVOICE';
-DECLARE @Pt  SYSNAME = @Prefix + N'_PAYTRANS';
-DECLARE @nInvMap INT = 0, @nTahMap INT = 0, @nPtMap INT = 0, @nPayMap INT = 0, @nIppMap INT = 0;
-DECLARE @nInvOk INT = 0, @nInvBad INT = 0, @nInvNoMap INT = 0;
-DECLARE @nPayOk INT = 0, @nPayBad INT = 0;
-DECLARE @DryRunInt INT;
-DECLARE @sql NVARCHAR(MAX);
-
-SET @DryRunInt = CAST(@DRY_RUN AS INT);
-PRINT '========== E35 BANKREF RESOLVE START ==========';
-RAISERROR('E35 DRY_RUN=%d', 0, 1, @DryRunInt) WITH NOWAIT;
-PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
-    + ' AGR=' + CASE WHEN @AGR_ID IS NULL THEN 'FULL' WHEN @AGR_ID = -1 THEN 'NO_AGR' ELSE CAST(@AGR_ID AS VARCHAR(20)) END;
-
-IF OBJECT_ID('dbo.LS_BANK', 'U') IS NULL
-   OR COL_LENGTH('dbo.LS_BANK', 'ABYS_ID') IS NULL
+SET ANSI_NULLS ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_35_BANKREF_RESOLVE
+    @DRY_RUN BIT = 1,
+    @AGR_ID  BIGINT = NULL   -- NULL=FULL | 197168=AGR | -1=NO_AGR
+AS
 BEGIN
-    RAISERROR('LS_BANK.ABYS_ID yok — once 121_REF_BANK__migrate.sql', 16, 1);
-    RETURN;
-END
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET IMPLICIT_TRANSACTIONS OFF;
 
-/* FN_MIG_RESOLVE_BANK_LREF kullanma — scalar UDF FULL INV’de RBAR (session 91 CX).
-   Resolve = LS_BANK.ABYS_ID JOIN (APPLY ile ayni). */
+    DECLARE @Prefix  SYSNAME = N'LS_005_01';
+    DECLARE @Inv SYSNAME = @Prefix + N'_INVOICE';
+    DECLARE @Pt  SYSNAME = @Prefix + N'_PAYTRANS';
+    DECLARE @nInvMap INT = 0, @nTahMap INT = 0, @nPtMap INT = 0, @nPayMap INT = 0, @nIppMap INT = 0;
+    DECLARE @nInvOk INT = 0, @nInvBad INT = 0, @nInvNoMap INT = 0;
+    DECLARE @nPayOk INT = 0, @nPayBad INT = 0;
+    DECLARE @DryRunInt INT;
+    DECLARE @sql NVARCHAR(MAX);
 
-IF OBJECT_ID(N'dbo.' + @Inv, N'U') IS NULL OR OBJECT_ID(N'dbo.' + @Pt, N'U') IS NULL
-BEGIN
-    RAISERROR('ENERGY invoice/paytrans yok', 16, 1);
-    RETURN;
-END
+    SET @DryRunInt = CAST(@DRY_RUN AS INT);
+    PRINT '========== E35 BANKREF RESOLVE START ==========';
+    RAISERROR('E35 DRY_RUN=%d', 0, 1, @DryRunInt) WITH NOWAIT;
+    PRINT CONVERT(VARCHAR(30), SYSDATETIME(), 121)
+        + ' AGR=' + CASE WHEN @AGR_ID IS NULL THEN 'FULL' WHEN @AGR_ID = -1 THEN 'NO_AGR' ELSE CAST(@AGR_ID AS VARCHAR(20)) END;
 
-IF OBJECT_ID(N'izgazMGR.dbo.LS_INVOICE', N'U') IS NULL
-BEGIN
-    RAISERROR('izgazMGR.dbo.LS_INVOICE yok — SMS BANK_ID kaynagi gerekli', 16, 1);
-    RETURN;
-END
+    IF OBJECT_ID('dbo.LS_BANK', 'U') IS NULL
+       OR COL_LENGTH('dbo.LS_BANK', 'ABYS_ID') IS NULL
+    BEGIN
+        RAISERROR('LS_BANK.ABYS_ID yok — once 121_REF_BANK__migrate.sql', 16, 1);
+        RETURN;
+    END
 
-IF COL_LENGTH(N'dbo.' + @Inv, 'BANKREF') IS NULL
-   OR COL_LENGTH(N'dbo.' + @Pt, 'BANKREF') IS NULL
-BEGIN
-    RAISERROR('BANKREF kolonu yok (INV/PT)', 16, 1);
-    RETURN;
-END
+    /* FN_MIG_RESOLVE_BANK_LREF kullanma — scalar UDF FULL INV’de RBAR (session 91 CX).
+       Resolve = LS_BANK.ABYS_ID JOIN (APPLY ile ayni). */
 
-/* ---- indexes (lookup yonunde) ---- */
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.LS_BANK') AND name = 'UX_LS_BANK_ABYS_ID')
-BEGIN
-    PRINT 'CREATE UX_LS_BANK_ABYS_ID';
-    CREATE UNIQUE NONCLUSTERED INDEX UX_LS_BANK_ABYS_ID
-        ON dbo.LS_BANK (ABYS_ID)
-        WHERE ABYS_ID IS NOT NULL
-        WITH (MAXDOP = 8, ONLINE = OFF, SORT_IN_TEMPDB = ON);
-END
+    IF OBJECT_ID(N'dbo.' + @Inv, N'U') IS NULL OR OBJECT_ID(N'dbo.' + @Pt, N'U') IS NULL
+    BEGIN
+        RAISERROR('ENERGY invoice/paytrans yok', 16, 1);
+        RETURN;
+    END
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.' + @Inv) AND name = 'IX_MIG_INV_BANKREF')
-BEGIN
-    PRINT 'CREATE IX_MIG_INV_BANKREF';
-    SET @sql = N'
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_INVOICE', N'U') IS NULL
+    BEGIN
+        RAISERROR('izgazMGR.dbo.LS_INVOICE yok — SMS BANK_ID kaynagi gerekli', 16, 1);
+        RETURN;
+    END
+
+    IF COL_LENGTH(N'dbo.' + @Inv, 'BANKREF') IS NULL
+       OR COL_LENGTH(N'dbo.' + @Pt, 'BANKREF') IS NULL
+    BEGIN
+        RAISERROR('BANKREF kolonu yok (INV/PT)', 16, 1);
+        RETURN;
+    END
+
+    /* ---- indexes (lookup yonunde) ---- */
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.LS_BANK') AND name = 'UX_LS_BANK_ABYS_ID')
+    BEGIN
+        PRINT 'CREATE UX_LS_BANK_ABYS_ID';
+        CREATE UNIQUE NONCLUSTERED INDEX UX_LS_BANK_ABYS_ID
+            ON dbo.LS_BANK (ABYS_ID)
+            WHERE ABYS_ID IS NOT NULL
+            WITH (MAXDOP = 8, ONLINE = OFF, SORT_IN_TEMPDB = ON);
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.' + @Inv) AND name = 'IX_MIG_INV_BANKREF')
+    BEGIN
+        PRINT 'CREATE IX_MIG_INV_BANKREF';
+        SET @sql = N'
 CREATE NONCLUSTERED INDEX IX_MIG_INV_BANKREF
     ON dbo.' + QUOTENAME(@Inv) + N' (BANKREF)
     INCLUDE (OWNERREF, ABYS_AGREEMENT_ID, LREF, IOCODE)
     WHERE BANKREF IS NOT NULL
     WITH (MAXDOP = 8, ONLINE = OFF, SORT_IN_TEMPDB = ON);';
-    EXEC sp_executesql @sql;
-END
+        EXEC sp_executesql @sql;
+    END
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.' + @Pt) AND name = 'IX_MIG_PT_BANKREF')
-BEGIN
-    PRINT 'CREATE IX_MIG_PT_BANKREF';
-    SET @sql = N'
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.' + @Pt) AND name = 'IX_MIG_PT_BANKREF')
+    BEGIN
+        PRINT 'CREATE IX_MIG_PT_BANKREF';
+        SET @sql = N'
 CREATE NONCLUSTERED INDEX IX_MIG_PT_BANKREF
     ON dbo.' + QUOTENAME(@Pt) + N' (BANKREF)
     INCLUDE (INVOICEREF, LREF, IOCODE, ABYS_ID)
     WHERE BANKREF IS NOT NULL
     WITH (MAXDOP = 8, ONLINE = OFF, SORT_IN_TEMPDB = ON);';
-    EXEC sp_executesql @sql;
-END
+        EXEC sp_executesql @sql;
+    END
 
-/*
-  DRY FULL: INV×MGR mismatch COUNT/TOP YASAK — az mismatch = 140M+140M tarama (session 87: 200M read).
-  AGR scoped (@AGR_ID NOT NULL) ise kucuk COUNT + TOP 20 OK.
-*/
-IF @AGR_ID IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /*
+      DRY FULL: INV×MGR mismatch COUNT/TOP YASAK — az mismatch = 140M+140M tarama (session 87: 200M read).
+      AGR scoped (@AGR_ID NOT NULL) ise kucuk COUNT + TOP 20 OK.
+    */
+    IF @AGR_ID IS NOT NULL
+    BEGIN
+        SET @sql = N'
 SELECT @nBad = COUNT_BIG(*)
 FROM dbo.' + QUOTENAME(@Inv) + N' e WITH (NOLOCK)
 INNER JOIN izgazMGR.dbo.LS_INVOICE m WITH (NOLOCK) ON m.LREF = e.LREF
@@ -125,13 +132,13 @@ WHERE m.BANKREF IS NOT NULL
     OR (@AGR > 0 AND (e.OWNERREF = @AGR OR e.ABYS_AGREEMENT_ID = @AGR OR m.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql,
-        N'@AGR BIGINT, @nBad INT OUTPUT',
-        @AGR = @AGR_ID, @nBad = @nInvBad OUTPUT;
-    SET @nInvMap = ISNULL(@nInvBad, 0);
-    PRINT 'INV MAIN maplenecek(TYPE<>101)=' + CAST(@nInvMap AS VARCHAR(20));
+        EXEC sp_executesql @sql,
+            N'@AGR BIGINT, @nBad INT OUTPUT',
+            @AGR = @AGR_ID, @nBad = @nInvBad OUTPUT;
+        SET @nInvMap = ISNULL(@nInvBad, 0);
+        PRINT 'INV MAIN maplenecek(TYPE<>101)=' + CAST(@nInvMap AS VARCHAR(20));
 
-    SET @sql = N'
+        SET @sql = N'
 SELECT TOP (20)
     e.LREF, e.OWNERREF, m.BANKREF AS SMS_BANK_ID,
     b.LREF AS ENERGY_BANK_LREF,
@@ -148,15 +155,15 @@ WHERE m.BANKREF IS NOT NULL
     OR (@AGR > 0 AND (e.OWNERREF = @AGR OR e.ABYS_AGREEMENT_ID = @AGR OR m.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (FAST 20, MAXDOP 8);';
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-END
-ELSE
-    PRINT 'INV MAIN DRY SKIP (FULL) — mismatch azken TOP/COUNT 140M tarar; APPLY dogrudan.';
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+    END
+    ELSE
+        PRINT 'INV MAIN DRY SKIP (FULL) — mismatch azken TOP/COUNT 140M tarar; APPLY dogrudan.';
 
-/* PAY_PT vs LS_PAYMENT.BANKA_ID (tahsilat dogrulama) */
-IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /* PAY_PT vs LS_PAYMENT.BANKA_ID (tahsilat dogrulama) */
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 SELECT
   @nOk = SUM(CASE WHEN e.BANKREF = b.LREF THEN 1 ELSE 0 END),
   @nBad = SUM(CASE WHEN p.BANKA_ID IS NOT NULL
@@ -173,21 +180,21 @@ WHERE ISNULL(p.CANCELED, 0) = 0
     OR (@AGR > 0 AND (p.SOZLESME = @AGR OR e.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql,
-        N'@AGR BIGINT, @nOk INT OUTPUT, @nBad INT OUTPUT',
-        @AGR = @AGR_ID, @nOk = @nPayOk OUTPUT, @nBad = @nPayBad OUTPUT;
-    PRINT 'PAY_PT vs LS_PAYMENT ok=' + CAST(ISNULL(@nPayOk, 0) AS VARCHAR(20))
-        + ' maplenecek=' + CAST(ISNULL(@nPayBad, 0) AS VARCHAR(20));
-END
+        EXEC sp_executesql @sql,
+            N'@AGR BIGINT, @nOk INT OUTPUT, @nBad INT OUTPUT',
+            @AGR = @AGR_ID, @nOk = @nPayOk OUTPUT, @nBad = @nPayBad OUTPUT;
+        PRINT 'PAY_PT vs LS_PAYMENT ok=' + CAST(ISNULL(@nPayOk, 0) AS VARCHAR(20))
+            + ' maplenecek=' + CAST(ISNULL(@nPayBad, 0) AS VARCHAR(20));
+    END
 
-IF @DRY_RUN = 1
-BEGIN
-    PRINT '========== E35 DRY_RUN — APPLY icin @DRY_RUN=0 ==========';
-    RETURN;
-END
+    IF @DRY_RUN = 1
+    BEGIN
+        PRINT '========== E35 DRY_RUN — APPLY icin @DRY_RUN=0 ==========';
+        RETURN;
+    END
 
-/* ---- INV MAIN: MGR SMS BANK_ID → LREF (kısa statement; dış TRAN yok) ---- */
-SET @sql = N'
+    /* ---- INV MAIN: MGR SMS BANK_ID → LREF (kısa statement; dış TRAN yok) ---- */
+    SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Inv) + N' e
@@ -202,14 +209,14 @@ WHERE m.BANKREF IS NOT NULL
     OR (@AGR > 0 AND (e.OWNERREF = @AGR OR e.ABYS_AGREEMENT_ID = @AGR OR m.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-SET @nInvMap = @@ROWCOUNT;
+    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+    SET @nInvMap = @@ROWCOUNT;
 
-/* ---- TAH TYPE=101: LS_OV_TAH_INVOICE (OR join YASAK: LREF sonra ABYS) ---- */
-SET @nTahMap = 0;
-IF OBJECT_ID(N'izgazMGR.dbo.LS_OV_TAH_INVOICE', N'U') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /* ---- TAH TYPE=101: LS_OV_TAH_INVOICE (OR join YASAK: LREF sonra ABYS) ---- */
+    SET @nTahMap = 0;
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_OV_TAH_INVOICE', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Inv) + N' e
@@ -224,10 +231,10 @@ WHERE t.BANKREF IS NOT NULL
     OR (@AGR > 0 AND (e.OWNERREF = @AGR OR e.ABYS_AGREEMENT_ID = @AGR OR t.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-    SET @nTahMap = @@ROWCOUNT;
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+        SET @nTahMap = @@ROWCOUNT;
 
-    SET @sql = N'
+        SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Inv) + N' e
@@ -244,16 +251,16 @@ WHERE t.ABYS_ID IS NOT NULL
     OR (@AGR > 0 AND (e.OWNERREF = @AGR OR e.ABYS_AGREEMENT_ID = @AGR OR t.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-    SET @nTahMap = @nTahMap + @@ROWCOUNT;
-END
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+        SET @nTahMap = @nTahMap + @@ROWCOUNT;
+    END
 
-/* ---- PT tahsilat: LS_PAYMENT.BANKA_ID (AGR→SOZLESME SARG) ---- */
-SET @nPtMap = 0;
-IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
-BEGIN
-    IF @AGR_ID > 0
-        SET @sql = N'
+    /* ---- PT tahsilat: LS_PAYMENT.BANKA_ID (AGR→SOZLESME SARG) ---- */
+    SET @nPtMap = 0;
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
+    BEGIN
+        IF @AGR_ID > 0
+            SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Pt) + N' e
@@ -266,8 +273,8 @@ WHERE p.BANKA_ID IS NOT NULL
   AND e.ABYS_AGREEMENT_ID = @AGR
   AND (e.BANKREF IS NULL OR e.BANKREF <> b.LREF)
 OPTION (MAXDOP 8);';
-    ELSE IF @AGR_ID = -1
-        SET @sql = N'
+        ELSE IF @AGR_ID = -1
+            SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Pt) + N' e
@@ -279,8 +286,8 @@ WHERE p.BANKA_ID IS NOT NULL
   AND e.ABYS_AGREEMENT_ID IS NULL
   AND (e.BANKREF IS NULL OR e.BANKREF <> b.LREF)
 OPTION (MAXDOP 8);';
-    ELSE
-        SET @sql = N'
+        ELSE
+            SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Pt) + N' e
@@ -292,15 +299,15 @@ WHERE p.BANKA_ID IS NOT NULL
   AND (e.BANKREF IS NULL OR e.BANKREF <> b.LREF)
 OPTION (MAXDOP 8);';
 
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-    SET @nPayMap = @@ROWCOUNT;
-    SET @nPtMap = @nPtMap + @nPayMap;
-END
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+        SET @nPayMap = @@ROWCOUNT;
+        SET @nPtMap = @nPtMap + @nPayMap;
+    END
 
-/* ---- PT debt: MGR LS_DEBT_PAYTRANS ---- */
-IF OBJECT_ID(N'izgazMGR.dbo.LS_DEBT_PAYTRANS', N'U') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /* ---- PT debt: MGR LS_DEBT_PAYTRANS ---- */
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_DEBT_PAYTRANS', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Pt) + N' e
@@ -325,14 +332,14 @@ N'WHERE m.BANKREF IS NOT NULL
 '
   END + N'
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-    SET @nPtMap = @nPtMap + @@ROWCOUNT;
-END
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+        SET @nPtMap = @nPtMap + @@ROWCOUNT;
+    END
 
-/* ---- PT tahsilat fallback: LS_OV_PAY_PT ---- */
-IF OBJECT_ID(N'izgazMGR.dbo.LS_OV_PAY_PT', N'U') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /* ---- PT tahsilat fallback: LS_OV_PAY_PT ---- */
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_OV_PAY_PT', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 UPDATE e
 SET e.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Pt) + N' e
@@ -357,12 +364,12 @@ N'WHERE m.BANKREF IS NOT NULL
 '
   END + N'
 OPTION (MAXDOP 8);';
-    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-    SET @nPtMap = @nPtMap + @@ROWCOUNT;
-END
+        EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+        SET @nPtMap = @nPtMap + @@ROWCOUNT;
+    END
 
-/* ---- debt PT: parent INV bankasi (MGR yoksa / bos) ---- */
-SET @sql = N'
+    /* ---- debt PT: parent INV bankasi (MGR yoksa / bos) ---- */
+    SET @sql = N'
 UPDATE d
 SET d.BANKREF = inv.BANKREF
 FROM dbo.' + QUOTENAME(@Pt) + N' d
@@ -376,15 +383,15 @@ WHERE inv.BANKREF IS NOT NULL
     OR (@AGR > 0 AND (inv.OWNERREF = @AGR OR inv.ABYS_AGREEMENT_ID = @AGR))
   )
 OPTION (MAXDOP 8);';
-EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
-SET @nPtMap = @nPtMap + @@ROWCOUNT;
+    EXEC sp_executesql @sql, N'@AGR BIGINT', @AGR = @AGR_ID;
+    SET @nPtMap = @nPtMap + @@ROWCOUNT;
 
-IF OBJECT_ID(N'dbo.' + @Prefix + N'_INSTALLMENT_PLAN', N'U') IS NOT NULL
-   AND COL_LENGTH(N'dbo.' + @Prefix + N'_INSTALLMENT_PLAN', 'BANKREF') IS NOT NULL
-   AND OBJECT_ID(N'izgazMGR.dbo.LS_INSTALLMENT_PLAN', N'U') IS NOT NULL
-   AND COL_LENGTH(N'izgazMGR.dbo.LS_INSTALLMENT_PLAN', 'BANKREF') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    IF OBJECT_ID(N'dbo.' + @Prefix + N'_INSTALLMENT_PLAN', N'U') IS NOT NULL
+       AND COL_LENGTH(N'dbo.' + @Prefix + N'_INSTALLMENT_PLAN', 'BANKREF') IS NOT NULL
+       AND OBJECT_ID(N'izgazMGR.dbo.LS_INSTALLMENT_PLAN', N'U') IS NOT NULL
+       AND COL_LENGTH(N'izgazMGR.dbo.LS_INSTALLMENT_PLAN', 'BANKREF') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 UPDATE ip
 SET ip.BANKREF = b.LREF
 FROM dbo.' + QUOTENAME(@Prefix + N'_INSTALLMENT_PLAN') + N' ip
@@ -393,27 +400,27 @@ INNER JOIN dbo.LS_BANK b ON b.ABYS_ID = m.BANKREF
 WHERE m.BANKREF IS NOT NULL
   AND (ip.BANKREF IS NULL OR ip.BANKREF <> b.LREF)
 OPTION (MAXDOP 8);';
-    BEGIN TRY
-        EXEC sp_executesql @sql;
-        SET @nIppMap = @@ROWCOUNT;
-    END TRY
-    BEGIN CATCH
-        PRINT 'INSTALLMENT_PLAN BANKREF skip: ' + ERROR_MESSAGE();
-        SET @nIppMap = 0;
-    END CATCH
-END
+        BEGIN TRY
+            EXEC sp_executesql @sql;
+            SET @nIppMap = @@ROWCOUNT;
+        END TRY
+        BEGIN CATCH
+            PRINT 'INSTALLMENT_PLAN BANKREF skip: ' + ERROR_MESSAGE();
+            SET @nIppMap = 0;
+        END CATCH
+    END
 
-PRINT '========== E35 APPLY OK | inv=' + CAST(@nInvMap AS VARCHAR(20))
-    + ' tah=' + CAST(@nTahMap AS VARCHAR(20))
-    + ' pay=' + CAST(@nPayMap AS VARCHAR(20))
-    + ' pt~' + CAST(@nPtMap AS VARCHAR(20))
-    + ' ipp=' + CAST(@nIppMap AS VARCHAR(20))
-    + ' ==========';
+    PRINT '========== E35 APPLY OK | inv=' + CAST(@nInvMap AS VARCHAR(20))
+        + ' tah=' + CAST(@nTahMap AS VARCHAR(20))
+        + ' pay=' + CAST(@nPayMap AS VARCHAR(20))
+        + ' pt~' + CAST(@nPtMap AS VARCHAR(20))
+        + ' ipp=' + CAST(@nIppMap AS VARCHAR(20))
+        + ' ==========';
 
-/* post-verify PAY_PT */
-IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
-BEGIN
-    SET @sql = N'
+    /* post-verify PAY_PT */
+    IF OBJECT_ID(N'izgazMGR.dbo.LS_PAYMENT', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'
 SELECT
   @nOk = SUM(CASE WHEN e.BANKREF = b.LREF THEN 1 ELSE 0 END),
   @nBad = SUM(CASE WHEN p.BANKA_ID IS NOT NULL
@@ -429,10 +436,15 @@ WHERE ISNULL(p.CANCELED, 0) = 0
     OR (@AGR = -1 AND e.ABYS_AGREEMENT_ID IS NULL)
     OR (@AGR > 0 AND (p.SOZLESME = @AGR OR e.ABYS_AGREEMENT_ID = @AGR))
   );';
-    EXEC sp_executesql @sql,
-        N'@AGR BIGINT, @nOk INT OUTPUT, @nBad INT OUTPUT',
-        @AGR = @AGR_ID, @nOk = @nPayOk OUTPUT, @nBad = @nPayBad OUTPUT;
-    PRINT 'POST PAY_PT vs LS_PAYMENT ok=' + CAST(ISNULL(@nPayOk, 0) AS VARCHAR(20))
-        + ' mismatch=' + CAST(ISNULL(@nPayBad, 0) AS VARCHAR(20));
+        EXEC sp_executesql @sql,
+            N'@AGR BIGINT, @nOk INT OUTPUT, @nBad INT OUTPUT',
+            @AGR = @AGR_ID, @nOk = @nPayOk OUTPUT, @nBad = @nPayBad OUTPUT;
+        PRINT 'POST PAY_PT vs LS_PAYMENT ok=' + CAST(ISNULL(@nPayOk, 0) AS VARCHAR(20))
+            + ' mismatch=' + CAST(ISNULL(@nPayBad, 0) AS VARCHAR(20));
+    END
 END
 GO
+/* Driver (SSMS / sqlcmd):
+EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 1, @AGR_ID = NULL;
+EXEC dbo.SP_MIG_35_BANKREF_RESOLVE @DRY_RUN = 0, @AGR_ID = NULL;
+*/

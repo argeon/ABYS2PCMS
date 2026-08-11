@@ -5,19 +5,22 @@ Repo yolu = 195 yolu (ayni klasor yapisi):
 - 195:  `C:\www\MIGRATION_SCR_20260708\`
 
 Kaynaklar yerinde kaldi; bu klasor **kopya** paket yuzeyidir (cut degil).
-Son yenileme: 2026-08-09.
+Son yenileme: 2026-08-11.
 
 ## CTAS/
 Omurga: `oracleCTAS3007` · ayni ad varsa daha yeni: `oracleCTAS/prodREADY`  
-Ad: `NNN_ORIJINAL_AD.SQL` (**BUYUK HARF**).
+Ad: `NNN_NAME_Vnn.SQL` (**BUYUK HARF**) · tek orch: `00_RUN_ALL.SQL`  
+Map: `_ctas_nnn_map.ps1`
 
 | NNN | Anlam |
 |-----|--------|
-| `000_*` | Dokuman — `000_RUN_ORDER.MD` sira kaynagi |
-| `001–027` | Faz A — Master CTAS (+ LS_PROJECT / LS_PROJECTLINE) |
-| `030–060` | Faz B — Full tahsilat / O60 GUVENCE |
-| `070+` | prodREADY / 3007 extra (HOTFIX/diag/checklist) |
-| `090–091` | Orkestrator |
+| `001–009` | DOC (INDEX/SCHEMA/DUMP) |
+| `010–019` | SETUP (LOG/SESSION/PARAM) — RUNALL |
+| `020–099` | MASTER — RUNALL |
+| `100–129` | OKUMA/HHD — RUNALL |
+| `130–199` | FATURA/OVERLAY/GATE — RUNALL |
+| `200–259` | POST + IX + LOG — RUNALL |
+| `900+` | PILOT/EXTRA/DIAG — RUNALL disi |
 
 ## ENERGY/
 | Kaynak | Icerik |

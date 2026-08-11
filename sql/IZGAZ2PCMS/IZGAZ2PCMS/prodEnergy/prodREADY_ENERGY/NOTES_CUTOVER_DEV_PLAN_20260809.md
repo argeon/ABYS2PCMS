@@ -36,7 +36,7 @@ Ops: [`NOTES_597_OPS_HEAL.md`](NOTES_597_OPS_HEAL.md) R08/R09/R15.
 | 92 DV / 93 FEE | Pakette; DryRun→APPLY (`RUN_ORDER` D3/D4) |
 | AFL residual 91f–i | 195+196 APPLY (2026-08-10); **FULL zincire koyma** |
 | TTK | 196 reload `07082026` 72.0M; join = `ABYS_ACCOUNT_ID` |
-| Paket senkronu | snapshot + 195 mirror yapıldı; **A3 one-page yazıldı** |
+| Paket senkronu | snapshot + 195 mirror; **CTAS paket hazır damgası 2026-08-11 ~07:57** |
 
 ---
 
@@ -148,8 +148,8 @@ CTAS dump → prep/IX/collation
   → spot + G1–G9
 
 POST / paket
-  R12 (35/40/92 → SP) — cutover bitince
-  R16–R18 — sonraki FULL öncesi
+  ~~R12~~ DONE 2026-08-11 (35/40/92 → SP)
+  ~~R16 HEAP→IX / R17 / R18~~ DONE 2026-08-11
 ```
 
 ---
@@ -161,7 +161,7 @@ POST / paket
 - `E597=FAIL` + sonraki `E597G=GATE_PASS`: otorite GATE.
 - Identity path / hint collide: LREF dolu + IOCODE≠0 → adopt.
 - Emanet TTK miss (~757k); AFL eps gürültüsü; AFL open + PAID odası yok.
-- Açık kod: O20 ASIM gecikme; mahsup IL 162/1936.
+- ~~Açık kod: O20 ASIM gecikme; mahsup IL 162/1936~~ → **DONE 2026-08-11** (O20 tah∈1,3,10,41; `LS_OV_TAH_INVLINES` + 597 TAH_IL). Spot: AGR 412056.
 
 ---
 

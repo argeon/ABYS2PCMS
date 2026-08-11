@@ -39,12 +39,15 @@
 --   SYS_TAHSILAT_ADET   : aktarilmaz (NULL)
 --   SYS_IPTAL_ADET      : aktarilmaz (NULL)
 --   SYS_IPTAL_TUTAR     : aktarilmaz (NULL)
---
+--UPDATE energy.dbo.LS_BNK_MUTABAKAT_DETAY  set  TAHSILAT_ADET = (AUTO_PAYMENT_COUNT+TAHSILAT_ADET),TAHSILAT_TUTAR=(AUTO_PAYMENT_AMOUNT+TAHSILAT_TUTAR)   where AUTO_PAYMENT_COUNT>0 
 -- Onkosul : 121_REF_BANK__migrate.sql (LS_BANK.ABYS_ID dolu)
 -- Oracle  : oracleCTAS3007/LS_BANK_CONFIRM.sql → dump LS_BANK_CONFIRM
 -- ============================================================
 USE energy;
 GO
+ 
+
+
 
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
@@ -262,7 +265,7 @@ BEGIN
        OR COL_LENGTH('dbo.LS_BANK', 'ABYS_ID') IS NULL
     BEGIN
         IF @RaiseOnMissing = 1
-            RAISERROR('LS_BANK.ABYS_ID yok. Once 121_REF_BANK__migrate.sql calistirin.', 16, 1);
+            RAISERROR('LS_BANK.ABYS_ID yok. Once 121_REF_BANK__migrat            e.sql calistirin.', 16, 1);
         RETURN 1;
     END
 

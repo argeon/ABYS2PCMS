@@ -1,4 +1,4 @@
-# REPORT — kontrol/rapor kopyalari · 2026-08-09
+# REPORT — kontrol/rapor kopyalari · 2026-08-11
 000_README_AFL_FRK.TXT <= prodEnergy/90_afl_frk/00_README.txt
 091_AFL_FRK_COMPARE_LOG.SQL <= prodEnergy/90_afl_frk/91_afl_frk_compare_log.sql
 092_STG_INV_PAY_CLOSE_APPLY.SQL <= prodEnergy/90_afl_frk/92_stg_inv_pay_close_apply.sql
@@ -13,6 +13,7 @@
 098_TEST_TAM_IADE_MAIN_CLOSE.SQL <= prodEnergy/90_afl_frk/98_TEST_tam_iade_main_close.sql
 098_TEST_ASIM_MAIN_CLOSE.SQL <= prodEnergy/90_afl_frk/98_TEST_asim_main_close.sql
 099_AFL_VS_EN_KALAN_FRK.SQL <= prodEnergy/90_afl_frk/99_afl_vs_en_kalan_frk.sql
+100_CLOSED_LPD_NULL_DAYANAK.SQL <= prodEnergy/90_afl_frk/100_closed_lpd_null_dayanak.sql
 061_CHECK_QUERIES_ENERGY.SQL <= prodEnergy/prodREADY_ENERGY/CHECK_QUERIES_ENERGY.sql
 090_CHECK_QUERIES.SQL <= prodEnergy/prodREADY_ENERGY3007/90_check_queries.sql
 NOTES_CANLI_AKTARIM_REV_20260807.MD <= prodEnergy/prodREADY_ENERGY/NOTES_CANLI_AKTARIM_REV_20260807.md
@@ -29,6 +30,8 @@ MANUAL_CHECKLIST_ENERGY.TXT <= prodEnergy/prodREADY_ENERGY/MANUAL_CHECKLIST_ENER
 CHECKLIST_ENERGY.TXT <= prodEnergy/prodREADY_ENERGY/CHECKLIST.txt
 EXIT_MAP.MD <= prodEnergy/prodREADY_ENERGY3007/EXIT_MAP.md
 MANUAL_CHECKLIST_3007.TXT <= prodEnergy/prodREADY_ENERGY3007/MANUAL_CHECKLIST.txt
+CUTOVER_ONE_PAGE.MD <= prodEnergy/prodREADY_ENERGY/CUTOVER_ONE_PAGE.md
+NOTES_CUTOVER_DAY_20260811.MD <= prodEnergy/prodREADY_ENERGY/NOTES_CUTOVER_DAY_20260811.md
 072_CHECK_QUERIES_ORACLE.SQL <= oracleCTAS/prodREADY/CHECK_QUERIES_ORACLE.sql
 074_MANUAL_CHECKLIST_ORACLE.TXT <= oracleCTAS3007/MANUAL_CHECKLIST_ORACLE.txt
 078_DIAG_O11_CTAS_SMOKE.SQL <= oracleCTAS/prodREADY/diag_o11_ctas_smoke.sql

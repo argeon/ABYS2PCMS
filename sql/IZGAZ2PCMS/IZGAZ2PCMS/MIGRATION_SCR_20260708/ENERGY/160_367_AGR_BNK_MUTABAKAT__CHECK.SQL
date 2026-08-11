@@ -110,3 +110,4 @@ GO
 
 -- Gate (manuel):
 -- EXEC energy.dbo.SP_MIG_BNK_MUTABAKAT_VALIDATE_BANK_LREF @FirmaId=5, @RaiseOnMissing=0, @Phase='BOTH';
+   

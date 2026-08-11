@@ -519,6 +519,9 @@ FROM (
         cls.STATUS                                              AS CLOSESTATID,  -- DIKKAT: aslinda CANCELLATION_DATE (DATE). Kaynak kolon adi dogrulanmali.
 
         -- Tahsilat / Iade
+        -- FEE_COLLECTED: Güvence (ACCRUE 5/6 → TYPE109) + Bağlantı (4/27/28/544 → TYPE86)
+        -- ikisi de tahsil (ACTION_TYPE=2). Baglanti ACCOUNT.AGREEMENT_ID sik NULL →
+        -- INSTALLATION_ID = i.ID ile cozum. Energy heal: 93_AGR_FEE_COLLECTED_HEAL.sql
         CASE
             WHEN EXISTS (
                 SELECT 1
@@ -527,6 +530,17 @@ FROM (
                 WHERE acc.AGREEMENT_ID   = a.ID
                   AND acc.ACCRUE_TYPE_ID IN (5, 6)
                   AND aa.ACTION_TYPE_ID   = 2
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM SMS.CS_ACCOUNT        acc
+                JOIN SMS.CS_ACCOUNT_ACTION aa ON aa.ACCOUNT_ID = acc.ID
+                WHERE acc.ACCRUE_TYPE_ID IN (4, 27, 28, 544)
+                  AND aa.ACTION_TYPE_ID   = 2
+                  AND (
+                        acc.AGREEMENT_ID = a.ID
+                     OR acc.INSTALLATION_ID = i.ID
+                  )
             ) THEN 1
             ELSE 0
         END                                                     AS FEE_COLLECTED,

@@ -1,22 +1,21 @@
 /* =============================================================================
-   FILE : prodEnergy/90_afl_frk/99_afl_vs_en_kalan_frk.sql
-   Sol: AFL (tum satirlar) | Sag: Energy LEFT JOIN (kalan + odenecek)
-
-   Join : AFL.FATURAID = Energy.ABYS_ACCOUNT_ID
-   Energy:
-     EN_PAYABLE = CLOSED=0 borc INV PAYABLETOTAL toplami
-     EN_KALAN   = borc PT SUM(PAYABLE - PAID)  (CLOSED=0 INV uzerinden)
-   Kiyas: AFL.BALANCE vs EN_KALAN  (PAYABLE ile kiyas etme)
-
-   @OnlyDiff=1 → sadece fark / Energy yok
+   90_afl_frk / 99_afl_vs_en_kalan_frk.sql
+   CREATE OR ALTER PROCEDURE dbo.SP_MIG_99_AFL_EN_FRK  (R23 2026-08-11)
+   AFL.BALANCE vs Energy EN_KALAN.
+   EXEC dbo.SP_MIG_99_AFL_EN_FRK @OnlyDiff = 1;
    ============================================================================= */
 USE energy;
 GO
-SET NOCOUNT ON;
-SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-
-DECLARE @Eps      DECIMAL(18,2) = 0.02;
-DECLARE @OnlyDiff BIT           = 0;   -- 1 = sadece FRK
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_99_AFL_EN_FRK
+    @Eps      DECIMAL(18,2) = 0.02,
+    @OnlyDiff BIT           = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 ;WITH en_acc AS (
     SELECT
@@ -91,4 +90,7 @@ ORDER BY
     END,
     ABS(ISNULL(e.EN_KALAN, 0) - ISNULL(afl.BALANCE, 0)) DESC,
     afl.FATURAID;
+
+END
 GO
+/* EXEC dbo.SP_MIG_99_AFL_EN_FRK @OnlyDiff = 1; */

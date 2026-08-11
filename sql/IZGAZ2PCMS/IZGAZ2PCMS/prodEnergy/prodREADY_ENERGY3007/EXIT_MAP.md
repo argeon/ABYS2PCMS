@@ -108,7 +108,8 @@ Dump manifest 521/524 çağırır; 3007 RUN_ORDER bunları EXEC etmez.
 
 **Hizalama:** [`../PAKET_PATCH_HIZALAMA.md`](../PAKET_PATCH_HIZALAMA.md) — PAKET vs PATCH vs AÇIK KOD.  
 **Patch (3007 EXEC yok):** `hotfix/03–04`, `91*`, `22b`, `98_TEST_*` — `patch/README.md`.  
-**Açık kod (heal yok):** `NOTES_CANLI_AKTARIM_REV_20260807` O20 ASIM · TAM MAIN · mahsup IL.
+**Açık kod (heal yok):** `NOTES_CANLI_AKTARIM_REV_20260807` O20 ASIM · mahsup IL.  
+**R20 DONE:** TAM MAIN close → `SP_MIG_590_TAM_MAIN_CLOSE` (E590).
 
 ### Diğer INV / LEGAL / INSTALLMENT (paket dışı)
 

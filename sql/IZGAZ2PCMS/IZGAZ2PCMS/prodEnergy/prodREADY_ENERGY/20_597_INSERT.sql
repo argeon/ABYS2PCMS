@@ -1,8 +1,14 @@
-/* ============================================================
+﻿/* ============================================================
    prodREADY_ENERGY / 20_597_INSERT  (v5)
    PAY_PT + TAH_INV + CANCEL_* insert; MAP.ENERGY_LREF doldur
    Tek basina YASAK → 29_597_ALL
 
+   v5e (2026-08-11 R18):
+     - CLEAN/delete path MAXDOP 8 → 8 (CXSYNC)
+   v5f (2026-08-11):
+     - kalan INSERT/STG/MAP/DEBT_PAID MAXDOP 8 → 8
+   v5d (2026-08-11):
+     - TAH_IL: mahsup TYPE101 INVLINES 162/1936 (LS_OV_TAH_INVLINES / O30)
    v5c (perf hard rules — geri donus YASAK):
      - Hot loop'ta MGR LS_OV_ID_MAP UPDATE YOK (TAH/PAY/CANCEL); 20a offline
      - FULL: INV + PAYTRANS NCIX DISABLE zorunlu (PREPARE); acikken INSERT yok
@@ -254,12 +260,16 @@ BEGIN
     DECLARE @MgrCnt BIGINT, @EnCnt BIGINT;
     DECLARE @PayLastKey VARCHAR(80);
     DECLARE @TahLastKey VARCHAR(80);
+    DECLARE @IlLastKey VARCHAR(80);
     DECLARE @StgResume BIT;
+    DECLARE @HasLineNrSrc BIT =
+        CASE WHEN COL_LENGTH('dbo.LS_005_01_INVLINES', 'ABYS_LINENR_SRC') IS NOT NULL
+             THEN 1 ELSE 0 END;
 
     /* MAP sync — sadece 597 kind; resume skip */
     SELECT @MgrCnt = COUNT_BIG(*)
     FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
-    WHERE OV_KIND IN ('PAY_PT','TAH_INV','CANCEL_PAY','CANCEL_REV')
+    WHERE OV_KIND IN ('PAY_PT','TAH_INV','TAH_IL','CANCEL_PAY','CANCEL_REV')
       AND (
           @AGR_ID IS NULL
        OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
@@ -268,7 +278,7 @@ BEGIN
 
     SELECT @EnCnt = COUNT_BIG(*)
     FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
-    WHERE OV_KIND IN ('PAY_PT','TAH_INV','CANCEL_PAY','CANCEL_REV')
+    WHERE OV_KIND IN ('PAY_PT','TAH_INV','TAH_IL','CANCEL_PAY','CANCEL_REV')
       AND (
           @AGR_ID IS NULL
        OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
@@ -286,7 +296,7 @@ BEGIN
         MERGE dbo.MIG_OV_ID_MAP AS t
         USING (
             SELECT * FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
-            WHERE OV_KIND IN ('PAY_PT','TAH_INV','CANCEL_PAY','CANCEL_REV')
+            WHERE OV_KIND IN ('PAY_PT','TAH_INV','TAH_IL','CANCEL_PAY','CANCEL_REV')
               AND (
                   @AGR_ID IS NULL
                OR (@AGR_ID = -1 AND ABYS_AGREEMENT_ID IS NULL AND ABYS_ACCOUNT_ID IS NOT NULL)
@@ -300,7 +310,7 @@ BEGIN
             s.OV_KIND, s.SRC_KEY, s.LREF_HINT, s.PARENT_SRC_KEY, s.REF_MAIN_LREF,
             s.ABYS_AGREEMENT_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ID_BUSINESS, NULL
         )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
 
         SET @Ts = CONVERT(VARCHAR(30), SYSDATETIME(), 121);
         SET @Msg = @Ts + N' | E597 | INFO | MAP sync MERGE bitti';
@@ -326,7 +336,7 @@ BEGIN
            OR (@AGR_ID = -1 AND m.ABYS_AGREEMENT_ID IS NULL AND m.ABYS_ACCOUNT_ID IS NOT NULL)
            OR (@AGR_ID > 0 AND m.ABYS_AGREEMENT_ID = @AGR_ID)
             )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
         SET @N = @@ROWCOUNT;
 
         DELETE pt
@@ -342,7 +352,7 @@ BEGIN
                 WHERE m.ENERGY_LREF = pt.LREF
                   AND m.OV_KIND IN ('IADE_PT', 'KISMI_PT')
               )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
         SET @N = @N + @@ROWCOUNT;
 
         IF OBJECT_ID('dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
@@ -357,7 +367,7 @@ BEGIN
            OR (@AGR_ID = -1 AND inv.ABYS_AGREEMENT_ID IS NULL AND inv.ABYS_ACCOUNT_ID IS NOT NULL)
            OR (@AGR_ID > 0 AND (inv.ABYS_AGREEMENT_ID = @AGR_ID OR inv.OWNERREF = @AGR_ID))
             )
-            OPTION (RECOMPILE, MAXDOP 24);
+            OPTION (RECOMPILE, MAXDOP 8);
         END
 
         DELETE inv
@@ -369,13 +379,13 @@ BEGIN
            OR (@AGR_ID = -1 AND inv.ABYS_AGREEMENT_ID IS NULL AND inv.ABYS_ACCOUNT_ID IS NOT NULL)
            OR (@AGR_ID > 0 AND (inv.ABYS_AGREEMENT_ID = @AGR_ID OR inv.OWNERREF = @AGR_ID))
             )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
 
         /* MAP null — sadece dolu satir + batch (NULL→NULL YOK) */
         SET @Total = 0;
         SELECT @EnCnt = COUNT_BIG(*)
         FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
-        WHERE OV_KIND IN ('PAY_PT', 'TAH_INV', 'CANCEL_PAY', 'CANCEL_REV')
+        WHERE OV_KIND IN ('PAY_PT', 'TAH_INV', 'TAH_IL', 'CANCEL_PAY', 'CANCEL_REV')
           AND ENERGY_LREF IS NOT NULL
           AND (
               @AGR_ID IS NULL
@@ -393,14 +403,14 @@ BEGIN
             UPDATE TOP (@BatchSize) m
             SET m.ENERGY_LREF = NULL
             FROM dbo.MIG_OV_ID_MAP m
-            WHERE m.OV_KIND IN ('PAY_PT', 'TAH_INV', 'CANCEL_PAY', 'CANCEL_REV')
+            WHERE m.OV_KIND IN ('PAY_PT', 'TAH_INV', 'TAH_IL', 'CANCEL_PAY', 'CANCEL_REV')
               AND m.ENERGY_LREF IS NOT NULL
               AND (
                   @AGR_ID IS NULL
                OR (@AGR_ID = -1 AND m.ABYS_AGREEMENT_ID IS NULL AND m.ABYS_ACCOUNT_ID IS NOT NULL)
                OR (@AGR_ID > 0 AND m.ABYS_AGREEMENT_ID = @AGR_ID)
                 )
-            OPTION (RECOMPILE, MAXDOP 24);
+            OPTION (RECOMPILE, MAXDOP 8);
             SET @BatchN = @@ROWCOUNT;
             SET @Total = @Total + @BatchN;
             IF @BatchN = 0 BREAK;
@@ -610,7 +620,7 @@ BEGIN
                OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL AND s.ABYS_ACCOUNT_ID IS NOT NULL)
                OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
                 )
-            OPTION (RECOMPILE, MAXDOP 24);
+            OPTION (RECOMPILE, MAXDOP 8);
 
             SET @BatchN = @@ROWCOUNT;
             IF @BatchN = 0 BREAK;
@@ -633,6 +643,174 @@ BEGIN
            EN MAP doluysa PAY/WIRE icin yeterli; saatlik cross-DB sync'i atla. */
         IF @DEBUG = 1
             RAISERROR('597 TAH MAP resume MGR sync SKIP (use 20a offline)', 0, 1) WITH NOWAIT;
+
+        /* ---- TAH_IL: mahsup TYPE101 gelir 162/1936 (O30 LS_OV_TAH_INVLINES) ---- */
+        IF OBJECT_ID('izgazMGR.dbo.LS_OV_TAH_INVLINES', 'U') IS NOT NULL
+           AND OBJECT_ID('dbo.LS_005_01_INVLINES', 'U') IS NOT NULL
+        BEGIN
+            SET @IlLastKey = N'';
+            SET @Total = 0;
+
+            IF @DEBUG = 1
+                RAISERROR('597 TAH_IL keyset START', 0, 1) WITH NOWAIT;
+
+            BEGIN TRY
+                WHILE 1 = 1
+                BEGIN
+                    TRUNCATE TABLE dbo.MIG_597_STG_SRC_BATCH;
+                    TRUNCATE TABLE dbo.MIG_597_STG_MAP_OUT;
+
+                    INSERT INTO dbo.MIG_597_STG_SRC_BATCH (SRC_KEY)
+                    SELECT TOP (@BatchSize) s.SRC_KEY
+                    FROM izgazMGR.dbo.LS_OV_TAH_INVLINES s WITH (NOLOCK)
+                    WHERE s.SRC_KEY > @IlLastKey
+                      AND s.INVOICEREF_HINT BETWEEN 1 AND 2147483647
+                      AND (
+                          @AGR_ID IS NULL
+                       OR (@AGR_ID = -1 AND s.ABYS_AGREEMENT_ID IS NULL AND s.ABYS_ACCOUNT_ID IS NOT NULL)
+                       OR (@AGR_ID > 0 AND s.ABYS_AGREEMENT_ID = @AGR_ID)
+                        )
+                      AND NOT EXISTS (
+                            SELECT 1 FROM dbo.MIG_OV_ID_MAP m WITH (NOLOCK)
+                            WHERE m.SRC_KEY = s.SRC_KEY
+                              AND m.OV_KIND = 'TAH_IL'
+                              AND m.ENERGY_LREF IS NOT NULL
+                          )
+                      AND EXISTS (
+                            SELECT 1 FROM dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+                            WHERE inv.LREF = CAST(s.INVOICEREF_HINT AS INT)
+                              AND inv.[TYPE] = 101
+                          )
+                    ORDER BY s.SRC_KEY
+                    OPTION (RECOMPILE, MAXDOP 8);
+
+                    SET @BatchN = @@ROWCOUNT;
+                    IF @BatchN = 0 BREAK;
+
+                    SELECT @IlLastKey = MAX(SRC_KEY) FROM dbo.MIG_597_STG_SRC_BATCH;
+
+                    BEGIN TRAN;
+
+                    IF @HasLineNrSrc = 1
+                    BEGIN
+                        MERGE dbo.LS_005_01_INVLINES WITH (HOLDLOCK) AS t
+                        USING (
+                            SELECT
+                                CAST(s.INVOICEREF_HINT AS INT) AS INVOICEREF,
+                                CAST(s.CLIENTREF AS INT) AS CLIENTREF,
+                                CASE WHEN s.DATE_ < CAST('1900-01-01' AS DATETIME2)
+                                          OR s.DATE_ > CAST('2079-06-06 23:59:00' AS DATETIME2)
+                                     THEN CAST(NULL AS SMALLDATETIME)
+                                     ELSE CAST(s.DATE_ AS SMALLDATETIME) END AS DATE_,
+                                CAST(101 AS TINYINT) AS [TYPE],
+                                CAST(s.LINENR AS SMALLINT) AS LINENR,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TLTOTAL)) AS TLTOTAL,
+                                CAST(ISNULL(s.PCMS_INCOME_CODE, s.ABYS_INCOME_ID) AS INT) AS TRANSTYPE,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), ISNULL(s.TAX, 0))) AS TAX,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.GRANDTOTAL)) AS GRANDTOTAL,
+                                LEFT(s.LINEEXP, 100) AS LINEEXP,
+                                s.ABYS_INCOME_ID,
+                                s.SRC_KEY
+                            FROM izgazMGR.dbo.LS_OV_TAH_INVLINES s WITH (NOLOCK)
+                            INNER JOIN dbo.MIG_597_STG_SRC_BATCH b ON b.SRC_KEY = s.SRC_KEY
+                        ) AS s
+                        ON 1 = 0
+                        WHEN NOT MATCHED THEN INSERT (
+                            INVOICEREF, CLIENTREF, DATE_, [TYPE], LINENR, TLTOTAL, TRANSTYPE,
+                            TAX, GRANDTOTAL, LINEEXP, ABYS_INCOME_ID, ABYS_LINENR_SRC
+                        ) VALUES (
+                            s.INVOICEREF, s.CLIENTREF, s.DATE_, s.[TYPE], s.LINENR, s.TLTOTAL, s.TRANSTYPE,
+                            s.TAX, s.GRANDTOTAL, s.LINEEXP, s.ABYS_INCOME_ID, s.LINENR
+                        )
+                        OUTPUT inserted.LREF, s.SRC_KEY INTO dbo.MIG_597_STG_MAP_OUT (ENERGY_LREF, SRC_KEY)
+                        OPTION (RECOMPILE, MAXDOP 8);
+                    END
+                    ELSE
+                    BEGIN
+                        MERGE dbo.LS_005_01_INVLINES WITH (HOLDLOCK) AS t
+                        USING (
+                            SELECT
+                                CAST(s.INVOICEREF_HINT AS INT) AS INVOICEREF,
+                                CAST(s.CLIENTREF AS INT) AS CLIENTREF,
+                                CASE WHEN s.DATE_ < CAST('1900-01-01' AS DATETIME2)
+                                          OR s.DATE_ > CAST('2079-06-06 23:59:00' AS DATETIME2)
+                                     THEN CAST(NULL AS SMALLDATETIME)
+                                     ELSE CAST(s.DATE_ AS SMALLDATETIME) END AS DATE_,
+                                CAST(101 AS TINYINT) AS [TYPE],
+                                CAST(s.LINENR AS SMALLINT) AS LINENR,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.TLTOTAL)) AS TLTOTAL,
+                                CAST(ISNULL(s.PCMS_INCOME_CODE, s.ABYS_INCOME_ID) AS INT) AS TRANSTYPE,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), ISNULL(s.TAX, 0))) AS TAX,
+                                CONVERT(FLOAT, CONVERT(DECIMAL(18,2), s.GRANDTOTAL)) AS GRANDTOTAL,
+                                LEFT(s.LINEEXP, 100) AS LINEEXP,
+                                s.ABYS_INCOME_ID,
+                                s.SRC_KEY
+                            FROM izgazMGR.dbo.LS_OV_TAH_INVLINES s WITH (NOLOCK)
+                            INNER JOIN dbo.MIG_597_STG_SRC_BATCH b ON b.SRC_KEY = s.SRC_KEY
+                        ) AS s
+                        ON 1 = 0
+                        WHEN NOT MATCHED THEN INSERT (
+                            INVOICEREF, CLIENTREF, DATE_, [TYPE], LINENR, TLTOTAL, TRANSTYPE,
+                            TAX, GRANDTOTAL, LINEEXP, ABYS_INCOME_ID
+                        ) VALUES (
+                            s.INVOICEREF, s.CLIENTREF, s.DATE_, s.[TYPE], s.LINENR, s.TLTOTAL, s.TRANSTYPE,
+                            s.TAX, s.GRANDTOTAL, s.LINEEXP, s.ABYS_INCOME_ID
+                        )
+                        OUTPUT inserted.LREF, s.SRC_KEY INTO dbo.MIG_597_STG_MAP_OUT (ENERGY_LREF, SRC_KEY)
+                        OPTION (RECOMPILE, MAXDOP 8);
+                    END
+
+                    UPDATE m
+                    SET m.ENERGY_LREF = o.ENERGY_LREF
+                    FROM dbo.MIG_OV_ID_MAP m
+                    INNER JOIN dbo.MIG_597_STG_MAP_OUT o ON o.SRC_KEY = m.SRC_KEY
+                    WHERE m.OV_KIND = 'TAH_IL'
+                      AND m.ENERGY_LREF IS NULL
+                    OPTION (RECOMPILE, MAXDOP 8);
+
+                    /* MAP satiri yoksa (eski dump) — INSERT */
+                    INSERT INTO dbo.MIG_OV_ID_MAP (
+                        OV_KIND, SRC_KEY, LREF_HINT, PARENT_SRC_KEY, REF_MAIN_LREF,
+                        ABYS_AGREEMENT_ID, ABYS_ACCOUNT_ID, ABYS_ID_BUSINESS, ENERGY_LREF
+                    )
+                    SELECT
+                        'TAH_IL', o.SRC_KEY, NULL, s.INVOICE_SRC_KEY, NULL,
+                        s.ABYS_AGREEMENT_ID, s.ABYS_ACCOUNT_ID, s.ABYS_ID, o.ENERGY_LREF
+                    FROM dbo.MIG_597_STG_MAP_OUT o
+                    INNER JOIN izgazMGR.dbo.LS_OV_TAH_INVLINES s WITH (NOLOCK)
+                        ON s.SRC_KEY = o.SRC_KEY
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM dbo.MIG_OV_ID_MAP m WHERE m.SRC_KEY = o.SRC_KEY
+                    )
+                    OPTION (RECOMPILE, MAXDOP 8);
+
+                    COMMIT TRAN;
+
+                    SET @Total = @Total + @BatchN;
+                    IF @DEBUG = 1
+                    BEGIN
+                        SET @Msg = N'597 TAH_IL +' + CAST(@BatchN AS VARCHAR(20))
+                                 + N' total=' + CAST(@Total AS VARCHAR(20))
+                                 + N' lastKey=' + @IlLastKey;
+                        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+                    END
+                END
+            END TRY
+            BEGIN CATCH
+                IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+                SET @Msg = N'597 TAH_IL INSERT FAIL: ' + ERROR_MESSAGE();
+                RAISERROR('%s', 16, 1, @Msg);
+                RETURN;
+            END CATCH
+
+            IF @DEBUG = 1
+            BEGIN
+                SET @Msg = N'597 INSERT TAH_IL=' + CAST(@Total AS VARCHAR(20));
+                RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+            END
+        END
+        ELSE IF @DEBUG = 1
+            RAISERROR('597 TAH_IL SKIP (LS_OV_TAH_INVLINES yok)', 0, 1) WITH NOWAIT;
     END
     /* ---- PAY_PT: DEBT_LOOKUP + staging ----
        STG resume: STG_PAY+DEBT doluysa TRUNCATE yok; keyset MAX(SRC_KEY)'den devam */
@@ -675,7 +853,7 @@ BEGIN
                 SELECT 1 FROM dbo.MIG_OV_ID_MAP m WITH (NOLOCK)
                 WHERE m.SRC_KEY = s.SRC_KEY AND m.ENERGY_LREF IS NOT NULL
               )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
 
         INSERT INTO dbo.MIG_597_STG_DEBT_LOOKUP (MAIN_LREF, DEBT_PT_LREF)
         SELECT k.MAIN_LREF, MIN(d.LREF)
@@ -686,7 +864,7 @@ BEGIN
           AND d.CANCELED = 0
           AND (d.CANCELLATIONPAYMENT = 0 OR d.CANCELLATIONPAYMENT IS NULL)
         GROUP BY k.MAIN_LREF
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
 
         SET @PayLastKey = N'';
         IF @DEBUG = 1
@@ -1278,7 +1456,7 @@ BEGIN
            OR (@AGR_ID = -1 AND d.ABYS_AGREEMENT_ID IS NULL)
            OR (@AGR_ID > 0 AND d.ABYS_AGREEMENT_ID = @AGR_ID)
             )
-        OPTION (RECOMPILE, MAXDOP 24);
+        OPTION (RECOMPILE, MAXDOP 8);
         IF @DEBUG = 1
         BEGIN
             SET @Msg = N'597 INSERT DEBT_PAID_UPD=' + CAST(@@ROWCOUNT AS VARCHAR(20));

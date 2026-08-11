@@ -1,5 +1,6 @@
 /* ============================================================
    FILE : prodEnergy/90_afl_frk/92_stg_inv_pay_close_apply.sql
+   CREATE OR ALTER PROCEDURE dbo.SP_MIG_92_STG_CLOSE  (R12 2026-08-11)
    FAZ  : O51 LS_STG_INV_PAY_CLOSE → energy kontrollu kapanis
    Hedef:
      - AFL_OPEN     → DOKUNMA (acik kalsin)
@@ -14,379 +15,390 @@
      1) @DRY_RUN = 1  → sadece sayim / aday
      2) @DRY_RUN = 0  → uygula (batch)
    Rev: physical MIG_92_STG_* (#temp YOK); IOCODE=0; MAXDOP 8; RAISERROR BIT→INT
+   EXEC ornek:
+     EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 1, @AGR_ID = NULL;
+     EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 0, @AGR_ID = NULL;
    ============================================================ */
 USE energy;
 GO
-
-SET NOCOUNT ON;
-SET XACT_ABORT ON;
 SET QUOTED_IDENTIFIER ON;
-SET IMPLICIT_TRANSACTIONS OFF;
-
-/* ===================== PARAM ===================== */
-DECLARE @DRY_RUN      BIT            = 1;          -- 1=sayim, 0=apply
-DECLARE @AGR_ID       BIGINT         = NULL;       -- doluysa sadece sozlesme
-DECLARE @BATCH_SIZE   INT            = 50000;
-DECLARE @INCLUDE_EPS  BIT            = 1;          -- CLOSE_EPS dahil
-DECLARE @EpsPT        DECIMAL(18,2)  = 0.01;       -- PAID zaten yakinsa skip
-DECLARE @RunId        UNIQUEIDENTIFIER = NEWID();
-DECLARE @Msg          NVARCHAR(400);
-DECLARE @N            INT;
-DECLARE @Batch        INT;
-DECLARE @TotalPt      BIGINT = 0;
-DECLARE @TotalInv     BIGINT = 0;
-DECLARE @DryRunInt    INT;
-DECLARE @HasSafeDt    BIT = CASE WHEN OBJECT_ID('dbo.FN_SAFE_SMALLDT_DEP', 'FN') IS NOT NULL
-                                 THEN 1 ELSE 0 END;
-
-/* ===================== PRECHECK ===================== */
-IF OBJECT_ID('izgazMGR.dbo.LS_STG_INV_PAY_CLOSE', 'U') IS NULL
+SET ANSI_NULLS ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_92_STG_CLOSE
+    @DRY_RUN      BIT            = 1,          -- 1=sayim, 0=apply
+    @AGR_ID       BIGINT         = NULL,       -- doluysa sadece sozlesme
+    @BATCH_SIZE   INT            = 50000,
+    @INCLUDE_EPS  BIT            = 1,          -- CLOSE_EPS dahil
+    @EpsPT        DECIMAL(18,2)  = 0.01        -- PAID zaten yakinsa skip
+AS
 BEGIN
-    RAISERROR('izgazMGR.dbo.LS_STG_INV_PAY_CLOSE yok. Once Oracle O51 + dump.', 16, 1);
-    RETURN;
-END
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET IMPLICIT_TRANSACTIONS OFF;
 
-IF OBJECT_ID('energy.dbo.LS_005_01_INVOICE', 'U') IS NULL
-   OR OBJECT_ID('energy.dbo.LS_005_01_PAYTRANS', 'U') IS NULL
-BEGIN
-    RAISERROR('energy LS_005_01_INVOICE / PAYTRANS yok.', 16, 1);
-    RETURN;
-END
+    DECLARE @RunId        UNIQUEIDENTIFIER = NEWID();
+    DECLARE @Msg          NVARCHAR(400);
+    DECLARE @N            INT;
+    DECLARE @Batch        INT;
+    DECLARE @TotalPt      BIGINT = 0;
+    DECLARE @TotalInv     BIGINT = 0;
+    DECLARE @DryRunInt    INT;
+    DECLARE @HasSafeDt    BIT = CASE WHEN OBJECT_ID('dbo.FN_SAFE_SMALLDT_DEP', 'FN') IS NOT NULL
+                                     THEN 1 ELSE 0 END;
 
-SET @DryRunInt = CAST(@DRY_RUN AS INT);
-SET @Msg = N'STG CLOSE START run=' + CAST(@RunId AS NVARCHAR(36))
-    + N' DRY_RUN=' + CAST(@DryRunInt AS NVARCHAR(1))
-    + N' AGR=' + ISNULL(CAST(@AGR_ID AS NVARCHAR(30)), N'ALL')
-    + N' EPS=' + CAST(CAST(@INCLUDE_EPS AS INT) AS NVARCHAR(1));
-RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-
-/* ===================== ADAY SET (physical STG) ===================== */
-IF OBJECT_ID('dbo.MIG_92_STG_CLOSE', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.MIG_92_STG_CLOSE (
-        MAIN_LREF    INT            NOT NULL,
-        FATURAID     BIGINT         NULL,
-        SOZLESME     BIGINT         NULL,
-        FIX_KIND     VARCHAR(16)    NOT NULL,
-        WANT_CLOSED  TINYINT        NULL,
-        WANT_LPD     DATETIME2(3)   NULL,
-        PAYABLE_AMT  DECIMAL(18,2)  NULL,
-        OV_PAID_AMT  DECIMAL(18,2)  NULL,
-        CONSTRAINT PK_MIG_92_STG_CLOSE PRIMARY KEY CLUSTERED (MAIN_LREF)
-    );
-    CREATE NONCLUSTERED INDEX IX_MIG_92_STG_CLOSE_FIX
-        ON dbo.MIG_92_STG_CLOSE (FIX_KIND);
-END
-ELSE
-    TRUNCATE TABLE dbo.MIG_92_STG_CLOSE;
-
-INSERT INTO dbo.MIG_92_STG_CLOSE (
-    MAIN_LREF, FATURAID, SOZLESME, FIX_KIND, WANT_CLOSED, WANT_LPD, PAYABLE_AMT, OV_PAID_AMT
-)
-SELECT
-    CAST(s.MAIN_LREF AS INT) AS MAIN_LREF,
-    CAST(s.FATURAID AS BIGINT) AS FATURAID,
-    CAST(s.SOZLESME AS BIGINT) AS SOZLESME,
-    LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16) AS FIX_KIND,
-    CAST(s.WANT_CLOSED AS TINYINT) AS WANT_CLOSED,
-    TRY_CAST(s.WANT_LPD AS DATETIME2(3)) AS WANT_LPD,
-    CONVERT(DECIMAL(18,2), s.PAYABLE_AMT) AS PAYABLE_AMT,
-    CONVERT(DECIMAL(18,2), s.OV_PAID_AMT) AS OV_PAID_AMT
-FROM izgazMGR.dbo.LS_STG_INV_PAY_CLOSE s WITH (NOLOCK)
-WHERE ISNULL(s.WANT_CLOSED, 0) = 1
-  AND s.FIX_KIND IN ('CLOSE_FULL', 'CLOSE_EPS')
-  AND (@INCLUDE_EPS = 1 OR s.FIX_KIND = 'CLOSE_FULL')
-  AND (@AGR_ID IS NULL OR TRY_CAST(s.SOZLESME AS BIGINT) = @AGR_ID)
-  AND TRY_CAST(s.MAIN_LREF AS BIGINT) BETWEEN 1 AND 2147483647
-OPTION (RECOMPILE, MAXDOP 8);
-
-/* ===================== PREVIEW ===================== */
-PRINT '========== 1) STG aday ozet ==========';
-SELECT FIX_KIND, COUNT(*) AS CNT,
-       SUM(PAYABLE_AMT) AS PAYABLE_SUM,
-       SUM(OV_PAID_AMT) AS OV_PAID_SUM
-FROM dbo.MIG_92_STG_CLOSE
-GROUP BY FIX_KIND
-ORDER BY FIX_KIND;
-
-PRINT '========== 2) DokunulMAYACAK (kontrol) ==========';
-SELECT LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16) AS FIX_KIND, COUNT(*) AS CNT
-FROM izgazMGR.dbo.LS_STG_INV_PAY_CLOSE s WITH (NOLOCK)
-WHERE s.FIX_KIND IN ('AFL_OPEN', 'KEEP_OPEN', 'NO_PAY')
-  AND (@AGR_ID IS NULL OR TRY_CAST(s.SOZLESME AS BIGINT) = @AGR_ID)
-GROUP BY LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16)
-ORDER BY 1;
-
-PRINT '========== 3) PAYTRANS aday (IOCODE=0 borc PT) ==========';
-SELECT
-    COUNT(*) AS PT_CANDIDATE,
-    SUM(CASE WHEN ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
-                    - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) > @EpsPT
-             THEN 1 ELSE 0 END) AS PT_NEED_UPDATE,
-    SUM(CASE WHEN ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
-                    - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) <= @EpsPT
-             THEN 1 ELSE 0 END) AS PT_ALREADY_OK
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
-    ON pt.INVOICEREF = c.MAIN_LREF
-   AND pt.IOCODE = 0
-   AND ISNULL(pt.CANCELED, 0) = 0
-   AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
-OPTION (RECOMPILE, MAXDOP 8);
-
-PRINT '========== 4) INVOICE aday ==========';
-SELECT
-    COUNT(*) AS INV_CANDIDATE,
-    SUM(CASE WHEN ISNULL(inv.CLOSED, 0) = 0 THEN 1 ELSE 0 END) AS INV_NEED_CLOSED,
-    SUM(CASE WHEN inv.LASTPAIDDATE IS NULL AND c.WANT_LPD IS NOT NULL THEN 1 ELSE 0 END) AS INV_NEED_LPD,
-    SUM(CASE WHEN ISNULL(inv.CLOSED, 0) = 1 AND (inv.LASTPAIDDATE IS NOT NULL OR c.WANT_LPD IS NULL)
-             THEN 1 ELSE 0 END) AS INV_ALREADY_OK
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
-    ON inv.LREF = c.MAIN_LREF
-   AND ISNULL(inv.CANCELED, 0) = 0
-   AND inv.IOCODE = 0
-OPTION (RECOMPILE, MAXDOP 8);
-
-PRINT '========== 5) Spot ornek (20) ==========';
-SELECT TOP (20)
-    c.MAIN_LREF, c.FATURAID, c.SOZLESME, c.FIX_KIND,
-    c.PAYABLE_AMT, c.OV_PAID_AMT, c.WANT_LPD,
-    inv.CLOSED AS EN_CLOSED, inv.LASTPAIDDATE AS EN_LPD,
-    pt.LREF AS PT_LREF, pt.PAYABLETOTAL AS PT_PAYABLE, pt.PAID AS PT_PAID
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
-    ON inv.LREF = c.MAIN_LREF
-LEFT JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
-    ON pt.INVOICEREF = c.MAIN_LREF
-   AND pt.IOCODE = 0
-   AND ISNULL(pt.CANCELED, 0) = 0
-ORDER BY c.FIX_KIND, c.MAIN_LREF;
-
-IF @DRY_RUN = 1
-BEGIN
-    RAISERROR('DRY_RUN=1 — degisiklik yok. Uygulamak icin @DRY_RUN=0.', 0, 1) WITH NOWAIT;
-    RETURN;
-END
-
-/* ===================== APPLY LOG TABLO ===================== */
-IF OBJECT_ID('energy.dbo.MIG_STG_CLOSE_LOG', 'U') IS NULL
-BEGIN
-    CREATE TABLE energy.dbo.MIG_STG_CLOSE_LOG (
-        LOG_ID       BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-        RUN_ID       UNIQUEIDENTIFIER NOT NULL,
-        STEP_NAME    VARCHAR(40) NOT NULL,
-        ROW_CNT      BIGINT NULL,
-        NOTE         NVARCHAR(200) NULL,
-        LOG_TS       DATETIME2(3) NOT NULL CONSTRAINT DF_STG_CLOSE_TS DEFAULT (SYSDATETIME())
-    );
-    CREATE NONCLUSTERED INDEX IX_MIG_STG_CLOSE_RUN
-        ON energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME);
-END
-
-INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
-SELECT @RunId, 'START', COUNT(*), N'CLOSE_FULL/EPS aday'
-FROM dbo.MIG_92_STG_CLOSE;
-
-/* ===================== 6) PAYTRANS PAID = PAYABLETOTAL (batch) ===================== */
-RAISERROR('--- APPLY PAYTRANS PAID ---', 0, 1) WITH NOWAIT;
-SET @Batch = 0;
-
-IF OBJECT_ID('dbo.MIG_92_STG_PT_TODO', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.MIG_92_STG_PT_TODO (
-        PT_LREF       INT            NOT NULL,
-        MAIN_LREF     INT            NOT NULL,
-        PAYABLETOTAL  DECIMAL(18,2)  NOT NULL,
-        CONSTRAINT PK_MIG_92_STG_PT_TODO PRIMARY KEY CLUSTERED (PT_LREF)
-    );
-END
-ELSE
-    TRUNCATE TABLE dbo.MIG_92_STG_PT_TODO;
-
-INSERT INTO dbo.MIG_92_STG_PT_TODO (PT_LREF, MAIN_LREF, PAYABLETOTAL)
-SELECT
-    pt.LREF AS PT_LREF,
-    pt.INVOICEREF AS MAIN_LREF,
-    CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL) AS PAYABLETOTAL
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
-    ON pt.INVOICEREF = c.MAIN_LREF
-   AND pt.IOCODE = 0
-   AND ISNULL(pt.CANCELED, 0) = 0
-   AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
-WHERE ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
-        - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) > @EpsPT
-OPTION (RECOMPILE, MAXDOP 8);
-
-IF OBJECT_ID('dbo.MIG_92_STG_PT_BATCH', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.MIG_92_STG_PT_BATCH (
-        PT_LREF       INT            NOT NULL,
-        PAYABLETOTAL  DECIMAL(18,2)  NOT NULL,
-        CONSTRAINT PK_MIG_92_STG_PT_BATCH PRIMARY KEY CLUSTERED (PT_LREF)
-    );
-END
-
-WHILE 1 = 1
-BEGIN
-    TRUNCATE TABLE dbo.MIG_92_STG_PT_BATCH;
-    INSERT INTO dbo.MIG_92_STG_PT_BATCH (PT_LREF, PAYABLETOTAL)
-    SELECT TOP (@BATCH_SIZE) PT_LREF, PAYABLETOTAL
-    FROM dbo.MIG_92_STG_PT_TODO
-    ORDER BY PT_LREF;
-
-    SET @N = @@ROWCOUNT;
-    IF @N = 0 BREAK;
-
-    UPDATE pt
-    SET pt.PAID = b.PAYABLETOTAL
-    FROM energy.dbo.LS_005_01_PAYTRANS pt
-    INNER JOIN dbo.MIG_92_STG_PT_BATCH b ON b.PT_LREF = pt.LREF
-    OPTION (RECOMPILE, MAXDOP 8);
-
-    SET @TotalPt += @N;
-    SET @Batch += 1;
-
-    DELETE t
-    FROM dbo.MIG_92_STG_PT_TODO t
-    INNER JOIN dbo.MIG_92_STG_PT_BATCH b ON b.PT_LREF = t.PT_LREF;
-
-    SET @Msg = N'PAYTRANS batch=' + CAST(@Batch AS VARCHAR(20))
-        + N' rows=' + CAST(@N AS VARCHAR(20))
-        + N' total=' + CAST(@TotalPt AS VARCHAR(20));
-    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-END
-
-INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
-VALUES (@RunId, 'PAYTRANS_PAID', @TotalPt, N'PAID=PAYABLETOTAL');
-
-/* ===================== 7) INVOICE CLOSED + LASTPAIDDATE (batch) ===================== */
-RAISERROR('--- APPLY INVOICE CLOSED/LPD ---', 0, 1) WITH NOWAIT;
-SET @Batch = 0;
-
-IF OBJECT_ID('dbo.MIG_92_STG_INV_TODO', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.MIG_92_STG_INV_TODO (
-        MAIN_LREF  INT           NOT NULL,
-        WANT_LPD   DATETIME2(3)  NULL,
-        CONSTRAINT PK_MIG_92_STG_INV_TODO PRIMARY KEY CLUSTERED (MAIN_LREF)
-    );
-END
-ELSE
-    TRUNCATE TABLE dbo.MIG_92_STG_INV_TODO;
-
-INSERT INTO dbo.MIG_92_STG_INV_TODO (MAIN_LREF, WANT_LPD)
-SELECT
-    c.MAIN_LREF,
-    c.WANT_LPD
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
-    ON inv.LREF = c.MAIN_LREF
-   AND ISNULL(inv.CANCELED, 0) = 0
-   AND inv.IOCODE = 0
-WHERE ISNULL(inv.CLOSED, 0) = 0
-   OR (inv.LASTPAIDDATE IS NULL AND c.WANT_LPD IS NOT NULL)
-OPTION (RECOMPILE, MAXDOP 8);
-
-IF OBJECT_ID('dbo.MIG_92_STG_INV_BATCH', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.MIG_92_STG_INV_BATCH (
-        MAIN_LREF  INT           NOT NULL,
-        WANT_LPD   DATETIME2(3)  NULL,
-        CONSTRAINT PK_MIG_92_STG_INV_BATCH PRIMARY KEY CLUSTERED (MAIN_LREF)
-    );
-END
-
-WHILE 1 = 1
-BEGIN
-    TRUNCATE TABLE dbo.MIG_92_STG_INV_BATCH;
-    INSERT INTO dbo.MIG_92_STG_INV_BATCH (MAIN_LREF, WANT_LPD)
-    SELECT TOP (@BATCH_SIZE) MAIN_LREF, WANT_LPD
-    FROM dbo.MIG_92_STG_INV_TODO
-    ORDER BY MAIN_LREF;
-
-    SET @N = @@ROWCOUNT;
-    IF @N = 0 BREAK;
-
-    IF @HasSafeDt = 1
+    /* ===================== PRECHECK ===================== */
+    IF OBJECT_ID('izgazMGR.dbo.LS_STG_INV_PAY_CLOSE', 'U') IS NULL
     BEGIN
-        UPDATE inv
-        SET inv.CLOSED = CAST(1 AS BIT),
-            inv.LASTPAIDDATE = CASE
-                WHEN b.WANT_LPD IS NOT NULL
-                THEN energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(b.WANT_LPD AS DATETIME2))
-                ELSE inv.LASTPAIDDATE
-            END
-        FROM energy.dbo.LS_005_01_INVOICE inv
-        INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = inv.LREF
-        OPTION (RECOMPILE, MAXDOP 8);
+        RAISERROR('izgazMGR.dbo.LS_STG_INV_PAY_CLOSE yok. Once Oracle O51 + dump.', 16, 1);
+        RETURN;
+    END
+
+    IF OBJECT_ID('energy.dbo.LS_005_01_INVOICE', 'U') IS NULL
+       OR OBJECT_ID('energy.dbo.LS_005_01_PAYTRANS', 'U') IS NULL
+    BEGIN
+        RAISERROR('energy LS_005_01_INVOICE / PAYTRANS yok.', 16, 1);
+        RETURN;
+    END
+
+    SET @DryRunInt = CAST(@DRY_RUN AS INT);
+    SET @Msg = N'STG CLOSE START run=' + CAST(@RunId AS NVARCHAR(36))
+        + N' DRY_RUN=' + CAST(@DryRunInt AS NVARCHAR(1))
+        + N' AGR=' + ISNULL(CAST(@AGR_ID AS NVARCHAR(30)), N'ALL')
+        + N' EPS=' + CAST(CAST(@INCLUDE_EPS AS INT) AS NVARCHAR(1));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    /* ===================== ADAY SET (physical STG) ===================== */
+    IF OBJECT_ID('dbo.MIG_92_STG_CLOSE', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_92_STG_CLOSE (
+            MAIN_LREF    INT            NOT NULL,
+            FATURAID     BIGINT         NULL,
+            SOZLESME     BIGINT         NULL,
+            FIX_KIND     VARCHAR(16)    NOT NULL,
+            WANT_CLOSED  TINYINT        NULL,
+            WANT_LPD     DATETIME2(3)   NULL,
+            PAYABLE_AMT  DECIMAL(18,2)  NULL,
+            OV_PAID_AMT  DECIMAL(18,2)  NULL,
+            CONSTRAINT PK_MIG_92_STG_CLOSE PRIMARY KEY CLUSTERED (MAIN_LREF)
+        );
+        CREATE NONCLUSTERED INDEX IX_MIG_92_STG_CLOSE_FIX
+            ON dbo.MIG_92_STG_CLOSE (FIX_KIND);
     END
     ELSE
-    BEGIN
-        UPDATE inv
-        SET inv.CLOSED = CAST(1 AS BIT),
-            inv.LASTPAIDDATE = CASE
-                WHEN b.WANT_LPD IS NOT NULL
-                 AND CAST(b.WANT_LPD AS DATETIME2) >= '1900-01-01'
-                 AND CAST(b.WANT_LPD AS DATETIME2) < '2079-06-07'
-                THEN CAST(b.WANT_LPD AS DATETIME)
-                ELSE inv.LASTPAIDDATE
-            END
-        FROM energy.dbo.LS_005_01_INVOICE inv
-        INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = inv.LREF
-        OPTION (RECOMPILE, MAXDOP 8);
-    END
+        TRUNCATE TABLE dbo.MIG_92_STG_CLOSE;
 
-    SET @TotalInv += @N;
-    SET @Batch += 1;
+    INSERT INTO dbo.MIG_92_STG_CLOSE (
+        MAIN_LREF, FATURAID, SOZLESME, FIX_KIND, WANT_CLOSED, WANT_LPD, PAYABLE_AMT, OV_PAID_AMT
+    )
+    SELECT
+        CAST(s.MAIN_LREF AS INT) AS MAIN_LREF,
+        CAST(s.FATURAID AS BIGINT) AS FATURAID,
+        CAST(s.SOZLESME AS BIGINT) AS SOZLESME,
+        LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16) AS FIX_KIND,
+        CAST(s.WANT_CLOSED AS TINYINT) AS WANT_CLOSED,
+        TRY_CAST(s.WANT_LPD AS DATETIME2(3)) AS WANT_LPD,
+        CONVERT(DECIMAL(18,2), s.PAYABLE_AMT) AS PAYABLE_AMT,
+        CONVERT(DECIMAL(18,2), s.OV_PAID_AMT) AS OV_PAID_AMT
+    FROM izgazMGR.dbo.LS_STG_INV_PAY_CLOSE s WITH (NOLOCK)
+    WHERE ISNULL(s.WANT_CLOSED, 0) = 1
+      AND s.FIX_KIND IN ('CLOSE_FULL', 'CLOSE_EPS')
+      AND (@INCLUDE_EPS = 1 OR s.FIX_KIND = 'CLOSE_FULL')
+      AND (@AGR_ID IS NULL OR TRY_CAST(s.SOZLESME AS BIGINT) = @AGR_ID)
+      AND TRY_CAST(s.MAIN_LREF AS BIGINT) BETWEEN 1 AND 2147483647
+    OPTION (RECOMPILE, MAXDOP 8);
 
-    DELETE t
-    FROM dbo.MIG_92_STG_INV_TODO t
-    INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = t.MAIN_LREF;
+    /* ===================== PREVIEW ===================== */
+    PRINT '========== 1) STG aday ozet ==========';
+    SELECT FIX_KIND, COUNT(*) AS CNT,
+           SUM(PAYABLE_AMT) AS PAYABLE_SUM,
+           SUM(OV_PAID_AMT) AS OV_PAID_SUM
+    FROM dbo.MIG_92_STG_CLOSE
+    GROUP BY FIX_KIND
+    ORDER BY FIX_KIND;
 
-    SET @Msg = N'INVOICE batch=' + CAST(@Batch AS VARCHAR(20))
-        + N' rows=' + CAST(@N AS VARCHAR(20))
-        + N' total=' + CAST(@TotalInv AS VARCHAR(20));
-    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-END
+    PRINT '========== 2) DokunulMAYACAK (kontrol) ==========';
+    SELECT LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16) AS FIX_KIND, COUNT(*) AS CNT
+    FROM izgazMGR.dbo.LS_STG_INV_PAY_CLOSE s WITH (NOLOCK)
+    WHERE s.FIX_KIND IN ('AFL_OPEN', 'KEEP_OPEN', 'NO_PAY')
+      AND (@AGR_ID IS NULL OR TRY_CAST(s.SOZLESME AS BIGINT) = @AGR_ID)
+    GROUP BY LEFT(CAST(s.FIX_KIND AS VARCHAR(16)), 16)
+    ORDER BY 1;
 
-INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
-VALUES (@RunId, 'INVOICE_CLOSED_LPD', @TotalInv, N'CLOSED=1 + LASTPAIDDATE');
+    PRINT '========== 3) PAYTRANS aday (IOCODE=0 borc PT) ==========';
+    SELECT
+        COUNT(*) AS PT_CANDIDATE,
+        SUM(CASE WHEN ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
+                        - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) > @EpsPT
+                 THEN 1 ELSE 0 END) AS PT_NEED_UPDATE,
+        SUM(CASE WHEN ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
+                        - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) <= @EpsPT
+                 THEN 1 ELSE 0 END) AS PT_ALREADY_OK
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = c.MAIN_LREF
+       AND pt.IOCODE = 0
+       AND ISNULL(pt.CANCELED, 0) = 0
+       AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+    OPTION (RECOMPILE, MAXDOP 8);
 
-/* ===================== 8) POST CHECK ===================== */
-PRINT '========== POST: STG CLOSE_FULL/EPS hala acik mi? (0 beklenir) ==========';
-SELECT COUNT(*) AS STILL_OPEN_AFTER_CLOSE
-FROM dbo.MIG_92_STG_CLOSE c
-INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
-    ON inv.LREF = c.MAIN_LREF
-WHERE ISNULL(inv.CLOSED, 0) = 0
-  AND ISNULL(inv.CANCELED, 0) = 0
-OPTION (RECOMPILE, MAXDOP 8);
-
-PRINT '========== POST: energy CLOSED=0 vs AFL (hesap grain) ==========';
-SELECT
-    (SELECT COUNT(DISTINCT inv.ABYS_ACCOUNT_ID)
-     FROM energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
-     WHERE ISNULL(inv.CLOSED, 0) = 0
+    PRINT '========== 4) INVOICE aday ==========';
+    SELECT
+        COUNT(*) AS INV_CANDIDATE,
+        SUM(CASE WHEN ISNULL(inv.CLOSED, 0) = 0 THEN 1 ELSE 0 END) AS INV_NEED_CLOSED,
+        SUM(CASE WHEN inv.LASTPAIDDATE IS NULL AND c.WANT_LPD IS NOT NULL THEN 1 ELSE 0 END) AS INV_NEED_LPD,
+        SUM(CASE WHEN ISNULL(inv.CLOSED, 0) = 1 AND (inv.LASTPAIDDATE IS NOT NULL OR c.WANT_LPD IS NULL)
+                 THEN 1 ELSE 0 END) AS INV_ALREADY_OK
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        ON inv.LREF = c.MAIN_LREF
        AND ISNULL(inv.CANCELED, 0) = 0
        AND inv.IOCODE = 0
-       AND inv.ABYS_ACCOUNT_ID IS NOT NULL
-       AND (@AGR_ID IS NULL OR inv.ABYS_AGREEMENT_ID = @AGR_ID)
-    ) AS EN_OPEN_ACC,
-    (SELECT COUNT(*)
-     FROM izgazMGR.dbo.LS_AFL_OPEN_DEBT a WITH (NOLOCK)
-     WHERE ISNULL(a.MIG_IN_SCOPE, 1) = 1
-       AND (@AGR_ID IS NULL OR TRY_CAST(a.SOZLESME_HESABI AS BIGINT) = @AGR_ID)
-    ) AS AFL_OPEN_ACC;
+    OPTION (RECOMPILE, MAXDOP 8);
 
-INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
-VALUES (@RunId, 'DONE', @TotalPt + @TotalInv,
-        N'pt=' + CAST(@TotalPt AS NVARCHAR(20)) + N' inv=' + CAST(@TotalInv AS NVARCHAR(20)));
+    PRINT '========== 5) Spot ornek (20) ==========';
+    SELECT TOP (20)
+        c.MAIN_LREF, c.FATURAID, c.SOZLESME, c.FIX_KIND,
+        c.PAYABLE_AMT, c.OV_PAID_AMT, c.WANT_LPD,
+        inv.CLOSED AS EN_CLOSED, inv.LASTPAIDDATE AS EN_LPD,
+        pt.LREF AS PT_LREF, pt.PAYABLETOTAL AS PT_PAYABLE, pt.PAID AS PT_PAID
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        ON inv.LREF = c.MAIN_LREF
+    LEFT JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = c.MAIN_LREF
+       AND pt.IOCODE = 0
+       AND ISNULL(pt.CANCELED, 0) = 0
+    ORDER BY c.FIX_KIND, c.MAIN_LREF;
 
-SET @Msg = N'STG CLOSE DONE run=' + CAST(@RunId AS NVARCHAR(36))
-    + N' | PT=' + CAST(@TotalPt AS VARCHAR(20))
-    + N' INV=' + CAST(@TotalInv AS VARCHAR(20))
-    + N' | log: MIG_STG_CLOSE_LOG';
-RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    IF @DRY_RUN = 1
+    BEGIN
+        RAISERROR('DRY_RUN=1 — degisiklik yok. Uygulamak icin @DRY_RUN=0.', 0, 1) WITH NOWAIT;
+        RETURN;
+    END
+
+    /* ===================== APPLY LOG TABLO ===================== */
+    IF OBJECT_ID('energy.dbo.MIG_STG_CLOSE_LOG', 'U') IS NULL
+    BEGIN
+        CREATE TABLE energy.dbo.MIG_STG_CLOSE_LOG (
+            LOG_ID       BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+            RUN_ID       UNIQUEIDENTIFIER NOT NULL,
+            STEP_NAME    VARCHAR(40) NOT NULL,
+            ROW_CNT      BIGINT NULL,
+            NOTE         NVARCHAR(200) NULL,
+            LOG_TS       DATETIME2(3) NOT NULL CONSTRAINT DF_STG_CLOSE_TS DEFAULT (SYSDATETIME())
+        );
+        CREATE NONCLUSTERED INDEX IX_MIG_STG_CLOSE_RUN
+            ON energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME);
+    END
+
+    INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
+    SELECT @RunId, 'START', COUNT(*), N'CLOSE_FULL/EPS aday'
+    FROM dbo.MIG_92_STG_CLOSE;
+
+    /* ===================== 6) PAYTRANS PAID = PAYABLETOTAL (batch) ===================== */
+    RAISERROR('--- APPLY PAYTRANS PAID ---', 0, 1) WITH NOWAIT;
+    SET @Batch = 0;
+
+    IF OBJECT_ID('dbo.MIG_92_STG_PT_TODO', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_92_STG_PT_TODO (
+            PT_LREF       INT            NOT NULL,
+            MAIN_LREF     INT            NOT NULL,
+            PAYABLETOTAL  DECIMAL(18,2)  NOT NULL,
+            CONSTRAINT PK_MIG_92_STG_PT_TODO PRIMARY KEY CLUSTERED (PT_LREF)
+        );
+    END
+    ELSE
+        TRUNCATE TABLE dbo.MIG_92_STG_PT_TODO;
+
+    INSERT INTO dbo.MIG_92_STG_PT_TODO (PT_LREF, MAIN_LREF, PAYABLETOTAL)
+    SELECT
+        pt.LREF AS PT_LREF,
+        pt.INVOICEREF AS MAIN_LREF,
+        CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL) AS PAYABLETOTAL
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_PAYTRANS pt WITH (NOLOCK)
+        ON pt.INVOICEREF = c.MAIN_LREF
+       AND pt.IOCODE = 0
+       AND ISNULL(pt.CANCELED, 0) = 0
+       AND ISNULL(pt.CANCELLATIONPAYMENT, 0) = 0
+    WHERE ABS(CONVERT(DECIMAL(18,2), ISNULL(pt.PAID, 0))
+            - CONVERT(DECIMAL(18,2), pt.PAYABLETOTAL)) > @EpsPT
+    OPTION (RECOMPILE, MAXDOP 8);
+
+    IF OBJECT_ID('dbo.MIG_92_STG_PT_BATCH', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_92_STG_PT_BATCH (
+            PT_LREF       INT            NOT NULL,
+            PAYABLETOTAL  DECIMAL(18,2)  NOT NULL,
+            CONSTRAINT PK_MIG_92_STG_PT_BATCH PRIMARY KEY CLUSTERED (PT_LREF)
+        );
+    END
+
+    WHILE 1 = 1
+    BEGIN
+        TRUNCATE TABLE dbo.MIG_92_STG_PT_BATCH;
+        INSERT INTO dbo.MIG_92_STG_PT_BATCH (PT_LREF, PAYABLETOTAL)
+        SELECT TOP (@BATCH_SIZE) PT_LREF, PAYABLETOTAL
+        FROM dbo.MIG_92_STG_PT_TODO
+        ORDER BY PT_LREF;
+
+        SET @N = @@ROWCOUNT;
+        IF @N = 0 BREAK;
+
+        UPDATE pt
+        SET pt.PAID = b.PAYABLETOTAL
+        FROM energy.dbo.LS_005_01_PAYTRANS pt
+        INNER JOIN dbo.MIG_92_STG_PT_BATCH b ON b.PT_LREF = pt.LREF
+        OPTION (RECOMPILE, MAXDOP 8);
+
+        SET @TotalPt += @N;
+        SET @Batch += 1;
+
+        DELETE t
+        FROM dbo.MIG_92_STG_PT_TODO t
+        INNER JOIN dbo.MIG_92_STG_PT_BATCH b ON b.PT_LREF = t.PT_LREF;
+
+        SET @Msg = N'PAYTRANS batch=' + CAST(@Batch AS VARCHAR(20))
+            + N' rows=' + CAST(@N AS VARCHAR(20))
+            + N' total=' + CAST(@TotalPt AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
+    VALUES (@RunId, 'PAYTRANS_PAID', @TotalPt, N'PAID=PAYABLETOTAL');
+
+    /* ===================== 7) INVOICE CLOSED + LASTPAIDDATE (batch) ===================== */
+    RAISERROR('--- APPLY INVOICE CLOSED/LPD ---', 0, 1) WITH NOWAIT;
+    SET @Batch = 0;
+
+    IF OBJECT_ID('dbo.MIG_92_STG_INV_TODO', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_92_STG_INV_TODO (
+            MAIN_LREF  INT           NOT NULL,
+            WANT_LPD   DATETIME2(3)  NULL,
+            CONSTRAINT PK_MIG_92_STG_INV_TODO PRIMARY KEY CLUSTERED (MAIN_LREF)
+        );
+    END
+    ELSE
+        TRUNCATE TABLE dbo.MIG_92_STG_INV_TODO;
+
+    INSERT INTO dbo.MIG_92_STG_INV_TODO (MAIN_LREF, WANT_LPD)
+    SELECT
+        c.MAIN_LREF,
+        c.WANT_LPD
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        ON inv.LREF = c.MAIN_LREF
+       AND ISNULL(inv.CANCELED, 0) = 0
+       AND inv.IOCODE = 0
+    WHERE ISNULL(inv.CLOSED, 0) = 0
+       OR (inv.LASTPAIDDATE IS NULL AND c.WANT_LPD IS NOT NULL)
+    OPTION (RECOMPILE, MAXDOP 8);
+
+    IF OBJECT_ID('dbo.MIG_92_STG_INV_BATCH', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_92_STG_INV_BATCH (
+            MAIN_LREF  INT           NOT NULL,
+            WANT_LPD   DATETIME2(3)  NULL,
+            CONSTRAINT PK_MIG_92_STG_INV_BATCH PRIMARY KEY CLUSTERED (MAIN_LREF)
+        );
+    END
+
+    WHILE 1 = 1
+    BEGIN
+        TRUNCATE TABLE dbo.MIG_92_STG_INV_BATCH;
+        INSERT INTO dbo.MIG_92_STG_INV_BATCH (MAIN_LREF, WANT_LPD)
+        SELECT TOP (@BATCH_SIZE) MAIN_LREF, WANT_LPD
+        FROM dbo.MIG_92_STG_INV_TODO
+        ORDER BY MAIN_LREF;
+
+        SET @N = @@ROWCOUNT;
+        IF @N = 0 BREAK;
+
+        IF @HasSafeDt = 1
+        BEGIN
+            UPDATE inv
+            SET inv.CLOSED = CAST(1 AS BIT),
+                inv.LASTPAIDDATE = CASE
+                    WHEN b.WANT_LPD IS NOT NULL
+                    THEN energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(b.WANT_LPD AS DATETIME2))
+                    ELSE inv.LASTPAIDDATE
+                END
+            FROM energy.dbo.LS_005_01_INVOICE inv
+            INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = inv.LREF
+            OPTION (RECOMPILE, MAXDOP 8);
+        END
+        ELSE
+        BEGIN
+            UPDATE inv
+            SET inv.CLOSED = CAST(1 AS BIT),
+                inv.LASTPAIDDATE = CASE
+                    WHEN b.WANT_LPD IS NOT NULL
+                     AND CAST(b.WANT_LPD AS DATETIME2) >= '1900-01-01'
+                     AND CAST(b.WANT_LPD AS DATETIME2) < '2079-06-07'
+                    THEN CAST(b.WANT_LPD AS DATETIME)
+                    ELSE inv.LASTPAIDDATE
+                END
+            FROM energy.dbo.LS_005_01_INVOICE inv
+            INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = inv.LREF
+            OPTION (RECOMPILE, MAXDOP 8);
+        END
+
+        SET @TotalInv += @N;
+        SET @Batch += 1;
+
+        DELETE t
+        FROM dbo.MIG_92_STG_INV_TODO t
+        INNER JOIN dbo.MIG_92_STG_INV_BATCH b ON b.MAIN_LREF = t.MAIN_LREF;
+
+        SET @Msg = N'INVOICE batch=' + CAST(@Batch AS VARCHAR(20))
+            + N' rows=' + CAST(@N AS VARCHAR(20))
+            + N' total=' + CAST(@TotalInv AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
+    VALUES (@RunId, 'INVOICE_CLOSED_LPD', @TotalInv, N'CLOSED=1 + LASTPAIDDATE');
+
+    /* ===================== 8) POST CHECK ===================== */
+    PRINT '========== POST: STG CLOSE_FULL/EPS hala acik mi? (0 beklenir) ==========';
+    SELECT COUNT(*) AS STILL_OPEN_AFTER_CLOSE
+    FROM dbo.MIG_92_STG_CLOSE c
+    INNER JOIN energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+        ON inv.LREF = c.MAIN_LREF
+    WHERE ISNULL(inv.CLOSED, 0) = 0
+      AND ISNULL(inv.CANCELED, 0) = 0
+    OPTION (RECOMPILE, MAXDOP 8);
+
+    PRINT '========== POST: energy CLOSED=0 vs AFL (hesap grain) ==========';
+    SELECT
+        (SELECT COUNT(DISTINCT inv.ABYS_ACCOUNT_ID)
+         FROM energy.dbo.LS_005_01_INVOICE inv WITH (NOLOCK)
+         WHERE ISNULL(inv.CLOSED, 0) = 0
+           AND ISNULL(inv.CANCELED, 0) = 0
+           AND inv.IOCODE = 0
+           AND inv.ABYS_ACCOUNT_ID IS NOT NULL
+           AND (@AGR_ID IS NULL OR inv.ABYS_AGREEMENT_ID = @AGR_ID)
+        ) AS EN_OPEN_ACC,
+        (SELECT COUNT(*)
+         FROM izgazMGR.dbo.LS_AFL_OPEN_DEBT a WITH (NOLOCK)
+         WHERE ISNULL(a.MIG_IN_SCOPE, 1) = 1
+           AND (@AGR_ID IS NULL OR TRY_CAST(a.SOZLESME_HESABI AS BIGINT) = @AGR_ID)
+        ) AS AFL_OPEN_ACC;
+
+    INSERT INTO energy.dbo.MIG_STG_CLOSE_LOG (RUN_ID, STEP_NAME, ROW_CNT, NOTE)
+    VALUES (@RunId, 'DONE', @TotalPt + @TotalInv,
+            N'pt=' + CAST(@TotalPt AS NVARCHAR(20)) + N' inv=' + CAST(@TotalInv AS NVARCHAR(20)));
+
+    SET @Msg = N'STG CLOSE DONE run=' + CAST(@RunId AS NVARCHAR(36))
+        + N' | PT=' + CAST(@TotalPt AS VARCHAR(20))
+        + N' INV=' + CAST(@TotalInv AS VARCHAR(20))
+        + N' | log: MIG_STG_CLOSE_LOG';
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+END
 GO
+/* Driver (SSMS / sqlcmd):
+EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 1, @AGR_ID = NULL;
+EXEC dbo.SP_MIG_92_STG_CLOSE @DRY_RUN = 0, @AGR_ID = NULL;
+*/

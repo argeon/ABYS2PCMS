@@ -1,48 +1,35 @@
 /* =============================================================================
    prodREADY_ENERGY / 20e_597_PAY_PT_BAD_MAP_HEAL.sql
-   R15: PAY_PT ENERGY_LREF → borç PT (IOCODE=0) adopt kirlenmesi
-   ---------------------------------------------------------------
-   Belirti (195 SQLMIG01):
-     PAY_PT map ~66.8M dolu ama IOCODE=1 PT ~37M;
-     ~30M map borç LREF'ine basılmış → tahsilat satırı yok.
-   Kök: 597 hint adopt, LREF doluysa IOCODE bakmadan MAP+LOADED=1.
-
-   Bu script:
-     1) DRY sayım
-     2) APPLY: EN (+opsiyonel MGR) PAY_PT/CANCEL_* map null (sadece IOCODE=0 hedef)
-     3) STG_PAY/DEBT truncate (resume KEEP kötü LOADED'ı taşımasın)
-     Borç PAYTRANS SİLMEZ.
-
-   YASAK: bu heal öncesi @CLEAN=1 FULL — CLEAN map→PT DELETE borç satırını yer!
-
-   Sonra (ayrı session):
-     - 28_DEPLOY_597 (adopt fix'li 20) veya en az 20_597_INSERT redeploy
-     - 20b_PAYTRANS_NCIX_DISABLE.sql
-     - EXEC SP_MIG_597_ALL @AGR_ID=NULL, @CLEAN=0, @DEBUG=1, @BatchSize=250000
-     - SP_MIG_597_GATE
-     - 20c_PAYTRANS_NCIX_REBUILD.sql
-
-   @DRY_RUN=1 sayim; 0=apply
-   sqlcmd -S 172.16.1.195 -d energy -C -I -f 65001 -i 20e_597_PAY_PT_BAD_MAP_HEAL.sql
+   CREATE OR ALTER PROCEDURE dbo.SP_MIG_20E_BAD_MAP_HEAL  (R23 2026-08-11)
+   R15: PAY_PT ENERGY_LREF → borç PT (IOCODE=0) map null. Borç PT SILMEZ.
+   YASAK: heal öncesi @CLEAN=1 FULL.
+   Sonra: SP_MIG_597_NCIX_DISABLE → SP_MIG_597_ALL @CLEAN=0 → GATE → NCIX_REBUILD
+   EXEC:
+     EXEC dbo.SP_MIG_20E_BAD_MAP_HEAL @DRY_RUN = 1;
+     EXEC dbo.SP_MIG_20E_BAD_MAP_HEAL @DRY_RUN = 0, @NULL_MGR = 1;
    ============================================================================= */
 USE energy;
 GO
-SET NOCOUNT ON;
-SET XACT_ABORT ON;
 SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
-SET IMPLICIT_TRANSACTIONS OFF;
+GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_20E_BAD_MAP_HEAL
+    @DRY_RUN  BIT = 1,
+    @NULL_MGR BIT = 1,
+    @Batch    INT = 500000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET IMPLICIT_TRANSACTIONS OFF;
 
-DECLARE @DRY_RUN BIT = 0;           /* 195 R15 APPLY — bitince tekrar 1 yap */
-DECLARE @NULL_MGR BIT = 1;          /* offline MGR map null — hot path degil */
-DECLARE @Batch INT = 500000;
-DECLARE @DryRunInt INT = CAST(@DRY_RUN AS INT);
-DECLARE @NullMgrInt INT = CAST(@NULL_MGR AS INT);
-DECLARE @N BIGINT;
-DECLARE @Upd INT;
-DECLARE @Total BIGINT = 0;
-DECLARE @Msg NVARCHAR(400);
-DECLARE @t0 DATETIME2 = SYSDATETIME();
+    DECLARE @DryRunInt INT = CAST(@DRY_RUN AS INT);
+    DECLARE @NullMgrInt INT = CAST(@NULL_MGR AS INT);
+    DECLARE @N BIGINT;
+    DECLARE @Upd INT;
+    DECLARE @Total BIGINT = 0;
+    DECLARE @Msg NVARCHAR(400);
+    DECLARE @t0 DATETIME2 = SYSDATETIME();
 
 RAISERROR('========== 20e PAY_PT BAD MAP HEAL DRY_RUN=%d NULL_MGR=%d ==========', 0, 1, @DryRunInt, @NullMgrInt) WITH NOWAIT;
 
@@ -78,7 +65,7 @@ OPTION (RECOMPILE, MAXDOP 8);
 
 IF @DRY_RUN = 1
 BEGIN
-    RAISERROR('DRY_RUN=1 — APPLY icin dosyada @DRY_RUN=0', 0, 1) WITH NOWAIT;
+    RAISERROR('DRY_RUN=1 — APPLY: EXEC ... @DRY_RUN=0', 0, 1) WITH NOWAIT;
     RETURN;
 END
 
@@ -216,5 +203,8 @@ SELECT
     (SELECT COUNT_BIG(*) FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
      WHERE OV_KIND = N'PAY_PT' AND ENERGY_LREF IS NOT NULL) AS en_pay_filled;
 
-RAISERROR('========== 20e DONE — sonra: deploy 20 (adopt fix) → 20b → ALL @CLEAN=0 → GATE → 20c ==========', 0, 1) WITH NOWAIT;
+RAISERROR('========== 20e DONE — sonra: deploy 20 → NCIX_DISABLE → ALL @CLEAN=0 → GATE → NCIX_REBUILD ==========', 0, 1) WITH NOWAIT;
+
+END
 GO
+/* EXEC dbo.SP_MIG_20E_BAD_MAP_HEAL @DRY_RUN = 1; */

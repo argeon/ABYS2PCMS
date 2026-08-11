@@ -5,11 +5,14 @@ Operator: _______________   Tarih: ____/____/2026
 ================================================================================
 sqlplus @dosya | tee logs/oracleCTAS3007/Oxx_YYYYMMDD_HHMM.log
 GATE_FAIL → DUR. Son: @99_log_status.sql + @_skip/CHECK_QUERIES_ORACLE.sql
+★ FAIL sonrası @00_RUN_ALL BAŞTAN YASAK — 924_NOTES_CTAS_NO_RESTART_V01.MD
+Ad: NNN_NAME_Vnn.SQL · tek orch: 00_RUN_ALL.SQL
 ================================================================================
 
-[ ] INDEX.md / DUMP_MANIFEST.txt / PILOT_FINDINGS.md okundu
-[ ] sqlplus MIGRATION OK · TEMP/undo yeterli
-[ ] _skip/ icinde calistirilmayan SQL (O30h/40/31/diag/CHECK) — zincire KARISMAZ
+[ ] 000_RUN_ORDER.MD / NOTES_CTAS_NO_RESTART okundu
+[ ] sqlplus MIGRATION OK · TEMP/undo/tablespace yeterli · DOP 56|48 karar
+[ ] 900+ EXTRA/PILOT RUNALL'a KARISMAZ
+[ ] Tek giris: @00_RUN_ALL.SQL
 
 Adim                              Dosya                              Saat   Sonuc
 --------------------------------------------------------------------------------
@@ -46,7 +49,8 @@ Adim                              Dosya                              Saat   Sonu
 [ ] O30h TAH_LOG (ops)            _skip/30_HOTFIX_ls_ov_tah_log_...  ____  ____
 
 Dump (DUMP_MANIFEST.txt)
-[ ] FAIL/GATE_FAIL = 0
+[ ] FAIL/GATE_FAIL = 0  ★ 251/99: "BU KOSU (otorite)" + bugun ham — gecmis FAIL sayilmaz
+    Son O41 GATE_PASS ise eski EARLY_PAY_GHOST GATE_FAIL satirlari blok degil.
 [ ] Tum LS_* + LS_OV_* + LS_INSTALLMENT_PLAN_PAY + CS_INSTALLMENT(_PLAN)
 
 Imza: _______________   Bitis: ______

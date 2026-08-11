@@ -236,8 +236,12 @@ GO
 
 IF CONVERT(INT, SESSION_CONTEXT(N'cut_do_overlay')) = 1
 BEGIN
-    RAISERROR('========== 4b) 597 TAHSILAT ==========', 0, 1) WITH NOWAIT;
-    EXEC dbo.SP_MIG_597_ALL @AGR_ID = NULL, @CLEAN = 1, @DEBUG = 1;
+    RAISERROR('========== 4b) 597 — once 20b INV+PT NCIX OFF (R17) ==========', 0, 1) WITH NOWAIT;
+    RAISERROR('Dosya: 20b_INVOICE_NCIX_DISABLE + 20b_PAYTRANS_NCIX_DISABLE', 0, 1) WITH NOWAIT;
+    RAISERROR('Sonra: SP_MIG_597_ALL → GATE → probe bad_map → (20e/@CLEAN=0) → 20c', 0, 1) WITH NOWAIT;
+    RAISERROR('Detay: SSMS_TAHSILAT_EXECS step 9–12 | RUN_ORDER D', 0, 1) WITH NOWAIT;
+    EXEC dbo.SP_MIG_597_ALL @AGR_ID = NULL, @CLEAN = 1, @DEBUG = 1, @BatchSize = 250000;
+    /* Post: GATE + probe (CUTOVER_ONE_PAGE §2). bad_map>0 → 20e + ALL @CLEAN=0 */
 END
 ELSE
     RAISERROR('========== 4) OVERLAY ATLANDI ==========', 0, 1) WITH NOWAIT;

@@ -1,4 +1,4 @@
-# 20260708/ENERGY — INDEX (2026-08-09)
+# 20260708/ENERGY — INDEX (2026-08-11)
 
 | NNN | Dosya | Kaynak |
 |-----|-------|--------|
@@ -249,3 +249,21 @@
 | 245 | 245_125_REF_BANK_ACC__SETUP.SQL | ProdIzgazMgr2Energy/prodENERGY/125_REF_BANK_ACC__setup.sql |
 | 246 | 246_126_REF_BANK_ACC__MIGRATE.SQL | ProdIzgazMgr2Energy/prodENERGY/126_REF_BANK_ACC__migrate.sql |
 | 247 | 247_91E_DEBT_PT_FINDINGS_HEAL.SQL | prodEnergy/prodREADY_ENERGY3007/91e_debt_pt_findings_heal.sql |
+| 248 | 248_13_590_TAM_MAIN_CLOSE.SQL | prodEnergy/prodREADY_ENERGY/13_590_TAM_MAIN_CLOSE.sql |
+| 251 | 251_92_INV_DV_FROM_INCOME_HEAL.SQL | prodEnergy/prodREADY_ENERGY/92_INV_DV_FROM_INCOME_HEAL.sql |
+| 252 | 252_93_AGR_FEE_COLLECTED_HEAL.SQL | prodEnergy/prodREADY_ENERGY/93_AGR_FEE_COLLECTED_HEAL.sql |
+| 253 | 253_CUTOVER_ONE_PAGE.MD | prodEnergy/prodREADY_ENERGY/CUTOVER_ONE_PAGE.md |
+| 254 | 254_NOTES_CUTOVER_DAY_20260811.MD | prodEnergy/prodREADY_ENERGY/NOTES_CUTOVER_DAY_20260811.md |
+| 255 | 255_91F_EN_GT_AFL_KALAN_HEAL.SQL | prodEnergy/90_afl_frk/91f_en_gt_afl_kalan_heal.sql |
+| 256 | 256_91G_EN_GT_AFL_PARTIAL_HEAL.SQL | prodEnergy/90_afl_frk/91g_en_gt_afl_partial_heal.sql |
+| 257 | 257_91H_AFL_GT_EN_REOPEN_HEAL.SQL | prodEnergy/90_afl_frk/91h_afl_gt_en_reopen_heal.sql |
+| 258 | 258_91I_OVERPAY_PAID_CLAMP_HEAL.SQL | prodEnergy/90_afl_frk/91i_overpay_paid_clamp_heal.sql |
+| 259 | 259_NOTES_AFL_HEAL_TEST_20260811.MD | prodEnergy/90_afl_frk/NOTES_AFL_HEAL_TEST_20260811.md |
+| 260 | 260_00I_MGR_OV_ID_MAP_CLUSTERED.SQL | prodEnergy/prodREADY_ENERGY/00i_mgr_ov_id_map_clustered.sql |
+| 261 | 261_NOTES_IX_SP_ORCH_PLAN_20260811.MD | prodEnergy/prodREADY_ENERGY/NOTES_IX_SP_ORCH_PLAN_20260811.md |
+| 262 | 262_100_CLOSED_LPD_NULL_DAYANAK.SQL | prodEnergy/90_afl_frk/100_closed_lpd_null_dayanak.sql |
+| 263 | 263_26_IX_PRECHECK.SQL | prodEnergy/prodREADY_ENERGY/26_IX_PRECHECK.sql |
+| 264 | 264_26A_IX_MGR_ENSURE.SQL | prodEnergy/prodREADY_ENERGY/26a_IX_MGR_ENSURE.sql |
+| 265 | 265_26B_597_NCIX_DISABLE.SQL | prodEnergy/prodREADY_ENERGY/26b_597_NCIX_DISABLE.sql |
+| 266 | 266_26C_597_NCIX_REBUILD.SQL | prodEnergy/prodREADY_ENERGY/26c_597_NCIX_REBUILD.sql |
+| 267 | 267_26D_IX_IP_AGR.SQL | prodEnergy/prodREADY_ENERGY/26d_IX_IP_AGR.sql |

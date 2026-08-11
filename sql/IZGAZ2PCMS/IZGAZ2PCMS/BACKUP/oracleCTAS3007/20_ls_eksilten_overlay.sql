@@ -88,10 +88,12 @@ JOIN (
     GROUP BY ai.ACCOUNT_ACTION_ID
 ) eks ON eks.ACCOUNT_ACTION_ID = e.ID
 LEFT JOIN (
+    /* O11 ile ayni borc action seti: 1=tahakkuk, 3=gecikme, 10/41=diger borc.
+       Sadece tip1 → gecikmeli eksiltende sahte ASIM (NOTES_CANLI §2 / AGR 412056). */
     SELECT x.ACCOUNT_ID, SUM(ABS(i.AMOUNT)) tut
     FROM SMS.CS_ACCOUNT_ACTION x
     JOIN SMS.CS_ACCOUNT_INCOME i ON i.ACCOUNT_ACTION_ID = x.ID
-    WHERE x.ACTION_TYPE_ID = 1
+    WHERE x.ACTION_TYPE_ID IN (1, 3, 10, 41)
     GROUP BY x.ACCOUNT_ID
 ) tah ON tah.ACCOUNT_ID = e.ACCOUNT_ID
 LEFT JOIN MIGRATION.LS_INVOICE main

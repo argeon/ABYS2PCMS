@@ -3,7 +3,7 @@
 Kopya arsiv. Kaynak: `90_afl_frk`, `prodREADY_ENERGY*`, Oracle CHECK/diag.
 Canli duzenleme kaynak klasorlerde; burasi aksam goc kontrol paketi.
 
-Yenilendi: 2026-08-09
+Yenilendi: 2026-08-11
 
 | Grup | Dosyalar |
 |------|----------|

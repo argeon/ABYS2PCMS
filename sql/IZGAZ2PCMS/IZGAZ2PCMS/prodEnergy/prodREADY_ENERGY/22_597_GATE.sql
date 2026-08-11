@@ -1,6 +1,7 @@
 /* prodREADY_ENERGY / 22_597_GATE — hard FAIL + log
    + CROSSREF vs OV MAIN→debt PT mismatch (MAP path dogrulama)
    + v5: CANCEL_REV aktif iken AFL kapali ise FAIL (WIRE heal sonrasi 0 olmali)
+   + R15: PAY_PT ENERGY_LREF → IOCODE=0 borç adopt FAIL (sahte GATE_PASS engeli)
 */
 USE energy;
 GO
@@ -29,6 +30,28 @@ BEGIN
     IF @n > 0
     BEGIN
         SET @Msg = N'PAY_PT ENERGY_LREF NULL=' + CAST(@n AS VARCHAR(20));
+        IF OBJECT_ID('dbo.SP_MIG_LOG_STEP', 'P') IS NOT NULL
+            EXEC dbo.SP_MIG_LOG_STEP 'E597G', N'gate_597', 'GATE_FAIL', @Msg, NULL;
+        RAISERROR('%s | E597G | GATE_FAIL | %s', 16, 1, @Ts, @Msg);
+        RETURN;
+    END
+
+    /* R15: PAY_PT ENERGY_LREF tahsilat olmali — borç (IOCODE=0) adopt = sahte PASS engeli */
+    SELECT @n = COUNT(*)
+    FROM dbo.MIG_OV_ID_MAP m
+    INNER JOIN dbo.LS_005_01_PAYTRANS pt ON pt.LREF = m.ENERGY_LREF
+    WHERE m.OV_KIND = 'PAY_PT'
+      AND m.ENERGY_LREF IS NOT NULL
+      AND pt.IOCODE = 0
+      AND (
+              @AGR_ID IS NULL
+           OR (@AGR_ID = -1 AND m.ABYS_AGREEMENT_ID IS NULL AND m.ABYS_ACCOUNT_ID IS NOT NULL)
+           OR (@AGR_ID > 0 AND m.ABYS_AGREEMENT_ID = @AGR_ID)
+            )
+    OPTION (RECOMPILE, MAXDOP 8);
+    IF @n > 0
+    BEGIN
+        SET @Msg = N'PAY_PT map→debt IOCODE=0 (R15 adopt)=' + CAST(@n AS VARCHAR(20));
         IF OBJECT_ID('dbo.SP_MIG_LOG_STEP', 'P') IS NOT NULL
             EXEC dbo.SP_MIG_LOG_STEP 'E597G', N'gate_597', 'GATE_FAIL', @Msg, NULL;
         RAISERROR('%s | E597G | GATE_FAIL | %s', 16, 1, @Ts, @Msg);

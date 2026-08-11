@@ -70,4 +70,11 @@ ORDER BY LOG_TS DESC;
 **Yapma:** `20a` (sadece TAH_INV null fill — bu anomaliyi çözmez).  
 **Yapma:** `20d` adopt’u heal öncesi eski gövdeyle — borç adopt tekrarlar (redeploy şart).
 
+### Tekrar düşmeme (zorunlu)
+
+1. **INSERT adopt** yalnız `pt.IOCODE <> 0`; borç collide → identity (`20_597_INSERT` / `20d`).
+2. **GATE** `PAY_PT map→IOCODE=0` → `GATE_FAIL` (`22_597_GATE` R15) — ENERGY_LREF dolu yetmez.
+3. Kabul: `bad_map=0` + `IOCODE=1 ≈ LS_OV_PAY_PT` — yalnız `GATE_PASS` yazısına güvenme.
+4. FULL sıra: `20b` → ALL → GATE → **`20c`** (WIRE’ı index’siz bırakma bilinci; ABYS NCIX WIRE öncesi açılabilir).
+
 **Sonraki aktarım:** FULL öncesi A1–A7 + probe C — `NOTES_REVIZYON_BACKLOG.md` →「SONRAKI AKTARIM — hazırlık」.

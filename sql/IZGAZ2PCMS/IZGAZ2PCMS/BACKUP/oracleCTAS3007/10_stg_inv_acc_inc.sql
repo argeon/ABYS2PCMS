@@ -6,6 +6,10 @@ SET SERVEROUTPUT ON SIZE UNLIMITED
 -- Onkosul: 00_session + 00_mig_param
 -- DOP: FORCE 56 (hash aggregate — PGA/TEMP RISK yuksek)
 -- Tutar kolonlari: CAST NUMBER(18,3) — dump/migrator scale kaybi onlenir
+-- LS_001 DV ayirimi (yalniz guvence tahakkuk tipleri):
+--   ACCRUE 5/6 → PCMS 109 | ACCRUE 21/341 → PCMS 111
+--   Bu tiplerde: TOTAL_DV = 23032/938/1863; TOTAL_EXCL_TAX bunlari haric
+--   Diger ACCRUE: TOTAL_DV=0; damga TOTAL_EXCL_TAX icinde (eski davranis)
 -- Sonraki: 11_ls_invoice.sql
 -- =============================================================================
 
@@ -36,9 +40,19 @@ SELECT /*+ FULL(aca) FULL(ai) PARALLEL(56) */
     CAST(aca.ACCOUNT_ID AS NUMBER(12))                          AS ACCOUNT_ID,
     CAST(aca.ID AS NUMBER(12))                                  AS ACA_ID,
 
+    /* ACCRUE 5/6/21/341 = guvence ailesi (109/111) — DV ayir */
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID IN (939, 7658)  THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS EXPEND_FEE,
-    CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID NOT IN (169, 60) THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS TOTAL_EXCL_TAX,
+    CAST(ROUND(SUM(CASE
+        WHEN a.ACCRUE_TYPE_ID IN (5, 6, 21, 341)
+             AND ai.INCOME_ID NOT IN (169, 60, 23032, 938, 1863) THEN ai.AMOUNT
+        WHEN NVL(a.ACCRUE_TYPE_ID, -1) NOT IN (5, 6, 21, 341)
+             AND ai.INCOME_ID NOT IN (169, 60) THEN ai.AMOUNT
+      END), 3) AS NUMBER(18,3))                                 AS TOTAL_EXCL_TAX,
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID IN (169, 60)    THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS TOTAL_TAX,
+    CAST(ROUND(SUM(CASE
+        WHEN a.ACCRUE_TYPE_ID IN (5, 6, 21, 341)
+             AND ai.INCOME_ID IN (23032, 938, 1863) THEN ai.AMOUNT
+      END), 3) AS NUMBER(18,3))                                 AS TOTAL_DV,
     CAST(ROUND(SUM(ai.AMOUNT), 3) AS NUMBER(18,3))              AS PAYABLE_TOTAL,
 
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID = 1861 THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS GAS_OPEN_FEE,
@@ -46,12 +60,17 @@ SELECT /*+ FULL(aca) FULL(ai) PARALLEL(56) */
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID = 1905 THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS DEFAULT_FINE_TAX,
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID = 1902 THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS ILLEGAL_USE_FEE,
     CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID = 100  THEN ai.AMOUNT END), 3) AS NUMBER(18,3)) AS DISCOUNT_ADDITION,
-    CAST(ROUND(SUM(CASE WHEN ai.INCOME_ID IN
-            (2981, 572, 938, 23033, 573, 23034, 23031, 23032, 2982,
+    CAST(ROUND(SUM(CASE
+        WHEN ai.INCOME_ID IN
+            (2981, 572, 23033, 573, 23034, 23031, 2982,
              576, 574, 3251, 12531, 579, 47, 578, 581, 575, 7709,
              577, 7504, 2521, 7528, 7464, 2847, 2446, 2649, 2520,
              7408, 2591, 7496, 2583, 3067)
-         THEN ai.AMOUNT END), 3) AS NUMBER(18,3))               AS SPEC_SERV_FEE,
+          THEN ai.AMOUNT
+        /* damga: yalniz guvence disi tahakkukta SPEC_SERV (eski) */
+        WHEN NVL(a.ACCRUE_TYPE_ID, -1) NOT IN (5, 6, 21, 341)
+             AND ai.INCOME_ID IN (938, 23032) THEN ai.AMOUNT
+      END), 3) AS NUMBER(18,3))                                 AS SPEC_SERV_FEE,
 
     CAST(SUM(CASE WHEN ai.INCOME_ID IN (939, 7658) THEN 1 ELSE 0 END) AS NUMBER(10)) AS HAS_GAZ,
     CAST(SUM(CASE WHEN ai.INCOME_ID IN

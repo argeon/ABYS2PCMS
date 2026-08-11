@@ -65,9 +65,9 @@ Ayırım:
 
 | Bacak | Tutar | Kapsayan not / pipeline | Test heal |
 |-------|-------|-------------------------|-----------|
-| Mahsup (güvence) | 778,90 | Bu dosya + O30 `LS_OV_MAHSUP_*` / 597 | Energy’de TYPE101 var; **INVLINES yok** (162/1936 kırılımı eksik) |
+| Mahsup (güvence) | 778,90 | Bu dosya + O30 `LS_OV_MAHSUP_*` / `LS_OV_TAH_INVLINES` / 597 TAH_IL | Energy TYPE101 + **INVLINES 162/1936** |
 | Mahsup sonrası kalan iade | (varsa) | `GUVENCE_IADE_110_RULE.md` · O60 → E610 TYPE110 | 196’da `LS_OV_GUVENCE_IADE_*` yok → TYPE110=0 |
-| Eksilten sonrası açık PT | ~4590 | Overlay ASIM (EKS>TAH; gecikme tah.tut dışı) | `98_TEST_asim_main_close.sql` — sadece PT close; güvence yerine geçmez |
+| Eksilten sonrası açık PT | ~4590 | Overlay ASIM (EKS>TAH; **O20 tah=1,3,10,41**) | `98_TEST_asim_main_close.sql` — sadece PT close; güvence yerine geçmez |
 
 `98_TEST_asim_*` DELTA_KALAN semptomunu temizler; mahsup/güvence gelir modeli bu not + E610 ile gelir.
 
@@ -75,10 +75,10 @@ Ayırım:
 
 Kod / dump tarafında yapılacaklar (test heal yerine):
 
-1. **Mahsup fis gelir kırılımı** — Energy TYPE101 yanında INVLINES **162 + 1936** (şu an 412056’da IL=0).
+1. **Mahsup fis gelir kırılımı** — Energy TYPE101 yanında INVLINES **162 + 1936** → O30 `LS_OV_TAH_INVLINES` + 597 TAH_IL (**DONE 2026-08-11**).
 2. **O30 / 597** — `LS_OV_MAHSUP_CLOSED` ile borç PT doğru `PAID`; mahsup over-close ile CANCEL_REV karıştırma (`NOTES_597_V5…`).
 3. **O60 + E610** — kalan güvence iade TYPE110 (`GUVENCE_IADE_110_RULE.md`); dump atlanırsa TYPE110=0.
-4. **O20 ASIM** — gecikmeli eksilten sahte ASIM; ayrı madde (`NOTES_CANLI_AKTARIM_REV_20260807.md` §2).
+4. **O20 ASIM** — gecikmeli eksilten sahte ASIM → `tah.tut` IN (1,3,10,41) (**DONE 2026-08-11**).
 5. `LS_EMANET` Energy INSERT hâlâ yok (`EXIT_MAP`) — bilinçli gap; mahsup borcu TYPE101/597 ile kapanır.
 
 Tek checklist: `prodEnergy/prodREADY_ENERGY/NOTES_CANLI_AKTARIM_REV_20260807.md`
