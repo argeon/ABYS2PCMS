@@ -90,6 +90,7 @@ PATCH residual (EXEC zincirine koyma):
   91g_en_gt_afl_partial_heal.sql — EN_GT_AFL + AFL>0 → FIFO excess PAID (AFL tutari acik)
   91h_afl_gt_en_reopen_heal.sql — AFL_GT_EN → PAID geri al / CLOSED=0 (AFL taban)
   91i_overpay_paid_clamp_heal.sql — AFL≈0 + EN<0 overpay → PAID=PAYABLE clamp
+  91j_afl_tutar_kalan_heal.sql — hesap grain AFL.BALANCE vs kanonik EN kalan (CLOSE+REOPEN)
   Test runbook: NOTES_AFL_HEAL_TEST_20260811.md  (05:00 aktarım testi)
     seed: MIG_AGR_FRK_ALL material bands; reopen AFL>EN | close EN>AFL | clamp overpay
 

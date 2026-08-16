@@ -267,3 +267,4 @@
 | 265 | 265_26B_597_NCIX_DISABLE.SQL | prodEnergy/prodREADY_ENERGY/26b_597_NCIX_DISABLE.sql |
 | 266 | 266_26C_597_NCIX_REBUILD.SQL | prodEnergy/prodREADY_ENERGY/26c_597_NCIX_REBUILD.sql |
 | 267 | 267_26D_IX_IP_AGR.SQL | prodEnergy/prodREADY_ENERGY/26d_IX_IP_AGR.sql |
+| 290 | 290_91J_AFL_TUTAR_KALAN_HEAL.SQL | prodEnergy/90_afl_frk/91j_afl_tutar_kalan_heal.sql |
