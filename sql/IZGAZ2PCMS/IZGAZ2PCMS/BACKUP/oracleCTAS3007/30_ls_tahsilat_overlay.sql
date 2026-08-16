@@ -829,19 +829,169 @@ ALTER INDEX MIGRATION.IX_OV_CANCEL_REV_AGR NOPARALLEL;
 ALTER INDEX MIGRATION.IX_OV_MAHSUP_SRC_AGR NOPARALLEL;
 
 -- =============================================================================
+-- 4c) Mahsup TYPE101 INVLINES — guvence gelir kirilimi 162/1936
+-- EMANET_MAHSUP_RULE: tip6/24 TAH_INV + tip12/tip20 emanet gelirleri
+-- Energy 597 INSERT → LS_005_01_INVLINES (INVOICEREF = TAH LREF = PAY.ID)
+-- =============================================================================
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE MIGRATION.LS_OV_TAH_INVLINES PURGE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+CREATE TABLE MIGRATION.LS_OV_TAH_INVLINES NOLOGGING PARALLEL 56 AS
+WITH mahsup_inv AS (
+    SELECT
+        t.SRC_KEY                                                AS INVOICE_SRC_KEY,
+        t.LREF                                                   AS INVOICEREF_HINT,
+        t.CLIENTREF,
+        t.DATE_,
+        CAST(t.TLTOTAL AS NUMBER(18,3))                          AS PAY_AMT,
+        t.ABYS_AGREEMENT_ID,
+        t.ABYS_ACCOUNT_ID,
+        t.ABYS_ID,
+        MAX(s.DEP_ACCOUNT_ID)                                    AS DEP_ACCOUNT_ID,
+        MAX(s.DEP_ACTION_ID)                                     AS DEP_ACTION_ID
+    FROM MIGRATION.LS_OV_TAH_INVOICE t
+    JOIN MIGRATION.LS_OV_MAHSUP_SRC s
+      ON s.PAY_LREF = t.LREF
+    WHERE NVL(t.CANCELED, 0) = 0
+      AND t.ABYS_ACTION_TYPE_ID IN (6, 24)
+    GROUP BY
+        t.SRC_KEY, t.LREF, t.CLIENTREF, t.DATE_, t.TLTOTAL,
+        t.ABYS_AGREEMENT_ID, t.ABYS_ACCOUNT_ID, t.ABYS_ID
+),
+/* 1) tip12 DEP_ACTION gelirleri (varsa) */
+dep_inc AS (
+    SELECT /*+ PARALLEL(56) */
+        m.INVOICE_SRC_KEY,
+        ai.INCOME_ID,
+        ROUND(SUM(ai.AMOUNT * ai.STATUS), 2)                     AS NET
+    FROM mahsup_inv m
+    JOIN SMS.CS_ACCOUNT_INCOME ai
+      ON ai.ACCOUNT_ACTION_ID = m.DEP_ACTION_ID
+    WHERE m.DEP_ACTION_ID IS NOT NULL
+      AND ai.INCOME_ID IN (
+            162, 163, 164, 165, 1936, 3198, 3199,
+            7649, 7650, 7651, 7652, 12531, 23032
+          )
+    GROUP BY m.INVOICE_SRC_KEY, ai.INCOME_ID
+    HAVING ABS(SUM(ai.AMOUNT * ai.STATUS)) > 0.02
+),
+/* 2) yoksa tip20 emanet girisi 162/1936 (DEP_ACCOUNT) */
+tip20_inc AS (
+    SELECT /*+ PARALLEL(56) */
+        m.INVOICE_SRC_KEY,
+        ai.INCOME_ID,
+        ROUND(SUM(ai.AMOUNT * ai.STATUS), 2)                     AS NET
+    FROM mahsup_inv m
+    JOIN SMS.CS_ACCOUNT_ACTION aa
+      ON aa.ACCOUNT_ID = m.DEP_ACCOUNT_ID
+     AND aa.ACTION_TYPE_ID = 20
+    JOIN SMS.CS_ACCOUNT_INCOME ai
+      ON ai.ACCOUNT_ACTION_ID = aa.ID
+    WHERE m.DEP_ACCOUNT_ID IS NOT NULL
+      AND ai.INCOME_ID IN (
+            162, 163, 164, 165, 1936, 3198, 3199,
+            7649, 7650, 7651, 7652, 12531, 23032
+          )
+      AND NOT EXISTS (
+            SELECT 1 FROM dep_inc d WHERE d.INVOICE_SRC_KEY = m.INVOICE_SRC_KEY
+          )
+    GROUP BY m.INVOICE_SRC_KEY, ai.INCOME_ID
+    HAVING ABS(SUM(ai.AMOUNT * ai.STATUS)) > 0.02
+),
+raw_inc AS (
+    SELECT * FROM dep_inc
+    UNION ALL
+    SELECT * FROM tip20_inc
+),
+scaled AS (
+    SELECT
+        m.*,
+        r.INCOME_ID,
+        r.NET,
+        SUM(ABS(r.NET)) OVER (PARTITION BY m.INVOICE_SRC_KEY)    AS INC_SUM
+    FROM mahsup_inv m
+    JOIN raw_inc r ON r.INVOICE_SRC_KEY = m.INVOICE_SRC_KEY
+)
+SELECT /*+ PARALLEL(56) */
+    CAST('TAH_IL|' || TO_CHAR(s.INVOICEREF_HINT) || '|' || TO_CHAR(s.INCOME_ID)
+         AS VARCHAR2(80))                                        AS SRC_KEY,
+    CAST(NULL AS NUMBER(12))                                     AS LREF_HINT,
+    s.INVOICE_SRC_KEY,
+    CAST(s.INVOICEREF_HINT AS NUMBER(12))                        AS INVOICEREF_HINT,
+    s.CLIENTREF,
+    s.DATE_,
+    CAST(101 AS NUMBER(3))                                       AS TYPE,
+    CAST(ROW_NUMBER() OVER (
+           PARTITION BY s.INVOICEREF_HINT ORDER BY s.INCOME_ID
+         ) AS NUMBER(5))                                         AS LINENR,
+    CAST(s.INCOME_ID AS NUMBER(10))                              AS TRANSTYPE,
+    CAST(ROUND(
+           CASE WHEN s.INC_SUM > 0.02
+                THEN ABS(s.NET) * s.PAY_AMT / s.INC_SUM
+                ELSE ABS(s.NET)
+           END, 2) AS NUMBER(18,3))                              AS AMOUNT,
+    CAST(ROUND(
+           CASE WHEN s.INC_SUM > 0.02
+                THEN ABS(s.NET) * s.PAY_AMT / s.INC_SUM
+                ELSE ABS(s.NET)
+           END, 2) AS NUMBER(18,3))                              AS TLTOTAL,
+    CAST(0 AS NUMBER(18,3))                                      AS TAX,
+    CAST(ROUND(
+           CASE WHEN s.INC_SUM > 0.02
+                THEN ABS(s.NET) * s.PAY_AMT / s.INC_SUM
+                ELSE ABS(s.NET)
+           END, 2) AS NUMBER(18,3))                              AS GRANDTOTAL,
+    CAST(CASE s.INCOME_ID
+           WHEN 162  THEN 'GÜVENCE BEDELİ'
+           WHEN 1936 THEN 'GÜVENCE FARK BEDELİ'
+           ELSE 'Mahsup / Güvence'
+         END AS VARCHAR2(100))                                   AS LINEEXP,
+    CAST(s.INCOME_ID AS NUMBER(10))                              AS ABYS_INCOME_ID,
+    CAST(s.INCOME_ID AS NUMBER(10))                              AS PCMS_INCOME_CODE,
+    CAST(s.ABYS_ID AS NUMBER(12))                                AS ABYS_ID,
+    s.ABYS_AGREEMENT_ID,
+    s.ABYS_ACCOUNT_ID,
+    CAST(s.DEP_ACCOUNT_ID AS NUMBER(12))                         AS DEP_ACCOUNT_ID,
+    CAST(s.DEP_ACTION_ID AS NUMBER(12))                          AS DEP_ACTION_ID,
+    CAST('TAH_IL' AS VARCHAR2(10))                               AS OV_KIND
+FROM scaled s
+WHERE ROUND(
+        CASE WHEN s.INC_SUM > 0.02
+             THEN ABS(s.NET) * s.PAY_AMT / s.INC_SUM
+             ELSE ABS(s.NET)
+        END, 2) > 0.02;
+
+CREATE UNIQUE INDEX MIGRATION.IX_OV_TAH_IL
+  ON MIGRATION.LS_OV_TAH_INVLINES (SRC_KEY) PARALLEL 56 NOLOGGING;
+CREATE INDEX MIGRATION.IX_OV_TAH_IL_INV
+  ON MIGRATION.LS_OV_TAH_INVLINES (INVOICE_SRC_KEY) PARALLEL 56 NOLOGGING;
+CREATE INDEX MIGRATION.IX_OV_TAH_IL_AGR
+  ON MIGRATION.LS_OV_TAH_INVLINES (ABYS_AGREEMENT_ID) PARALLEL 56 NOLOGGING;
+ALTER INDEX MIGRATION.IX_OV_TAH_IL NOPARALLEL;
+ALTER INDEX MIGRATION.IX_OV_TAH_IL_INV NOPARALLEL;
+ALTER INDEX MIGRATION.IX_OV_TAH_IL_AGR NOPARALLEL;
+ALTER TABLE MIGRATION.LS_OV_TAH_INVLINES NOPARALLEL LOGGING;
+/
+BEGIN DBMS_STATS.GATHER_TABLE_STATS('MIGRATION', 'LS_OV_TAH_INVLINES', degree => 40); END;
+/
+
+-- =============================================================================
 -- 5) LOG — AYRI DOSYA: 40_ls_tahsilat_log.sql
 -- 6) HARD GATE — AYRI DOSYA: 41_gate_tahsilat.sql
 -- =============================================================================
 DECLARE
-  n_pt NUMBER; n_al NUMBER; n_can NUMBER;
+  n_pt NUMBER; n_al NUMBER; n_can NUMBER; n_il NUMBER;
 BEGIN
   SELECT COUNT(*) INTO n_pt FROM MIGRATION.LS_OV_PAY_PT;
   SELECT COUNT(*) INTO n_al FROM MIGRATION.LS_OV_PAY_ALLOC;
   SELECT COUNT(*) INTO n_can FROM MIGRATION.LS_OV_CANCEL_PAY;
+  SELECT COUNT(*) INTO n_il FROM MIGRATION.LS_OV_TAH_INVLINES;
   MIGRATION.P_MIG_CTAS_LOG('O30', 'tahsilat_overlay', 'OK', n_pt,
-    'pay_pt=' || n_pt || ' alloc=' || n_al || ' cancel_pay=' || n_can || ' SRC_KEY model');
+    'pay_pt=' || n_pt || ' alloc=' || n_al || ' cancel_pay=' || n_can
+    || ' tah_il=' || n_il || ' SRC_KEY model');
   DBMS_OUTPUT.PUT_LINE('========== O30 TAHSILAT OK | pay_pt=' || n_pt
-    || ' alloc=' || n_al || ' | sonraki O35 MAP → O41 ==========');
+    || ' alloc=' || n_al || ' tah_il=' || n_il
+    || ' | sonraki O35 MAP → O41 ==========');
 END;
 /
 /

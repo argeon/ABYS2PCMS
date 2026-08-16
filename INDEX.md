@@ -7,9 +7,9 @@
 
 | Ne | Yol |
 |----|-----|
-| Energy | `sql/IZGAZ2PCMS/IZGAZ2PCMS/prodEnergy/` |
+| Energy (düzenleme) | `sql/IZGAZ2PCMS/IZGAZ2PCMS/prodEnergy/` |
 | CTAS omurga | `.../BACKUP/oracleCTAS3007/` |
-| Snapshot | `.../BACKUP/20260708/` |
+| Paket = 195 | `.../MIGRATION_SCR_20260708/` (`CTAS`/`ENERGY`/`REPORT`) |
 | Engine / UI | `MigrationEngine/`, `Migratorv0/`, `MigrationShared/` |
 
 ## Arşiv / çöp
@@ -24,5 +24,5 @@
 ## Kural
 
 - Canlı düzenleme: **prodEnergy** + **oracleCTAS3007**.
-- Snapshot: `BACKUP/20260708/_sync_snapshot.ps1`.
+- Paket yüzeyi: `MIGRATION_SCR_20260708/_sync_snapshot.ps1` → `_deploy_195.ps1`.
 - Eski BACKUP silmeden önce: **CANONICAL**.

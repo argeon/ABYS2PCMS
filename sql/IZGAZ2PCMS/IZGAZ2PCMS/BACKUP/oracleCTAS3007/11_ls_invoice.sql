@@ -152,7 +152,8 @@ SELECT /*+ PARALLEL(56) FULL(aa) FULL(acc) FULL(av) */
     CAST(NULL AS NUMBER(10))                                      AS LOGOREF,
 
     CAST(ROUND(COALESCE(av.TOTAL_TAX, 0), 3) AS NUMBER(18,3))     AS TAX,
-    CAST(0 AS NUMBER(18,3))                                       AS DV,
+    /* LS_001: DV yalniz guvence tahakkuk (O10 TOTAL_DV; ACCRUE 5/6/21/341) */
+    CAST(ROUND(COALESCE(av.TOTAL_DV, 0), 3) AS NUMBER(18,3))      AS DV,
     CAST(ROUND(COALESCE(av.PAYABLE_TOTAL, 0), 3) AS NUMBER(18,3)) AS GRANDTOTAL,
     NVL(aa.BILL_PRINT_NUMBER, 0)                                  AS PRINTCOUNT,
     CAST(ROUND(COALESCE(av.PAYABLE_TOTAL, 0), 3) AS NUMBER(18,3)) AS PAYABLETOTAL,

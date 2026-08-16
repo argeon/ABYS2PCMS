@@ -8,6 +8,8 @@
 --   1) UNION ALL kolon tipleri ilk dalda CAST ile sabitlenir (ORA-01790).
 --   2) Dal 1 REGISTER_ID ile gruplanir → ayni AGRID icin birden fazla
 --      GTYPE=39 satiri olusabilir (dogrulama asagida).
+--   3) 23032 (sozlesme damga) TOTAL/MUSTTL'ye GIRMEZ — LS_001: depozito =
+--      guvence asil; DV faturada (TYPE109 INV.DV). PCMS TOTAL = tahsilat - DV.
 -- =====================================================================
 
 WHENEVER SQLERROR EXIT FAILURE
@@ -69,7 +71,8 @@ JOIN SMS.CS_ACCOUNT_ACTION aa   ON aa.ACCOUNT_ID        = a.ID
 JOIN SMS.CS_ACCOUNT_INCOME ai   ON ai.ACCOUNT_ACTION_ID = aa.ID
 JOIN SMS.CS_ACTION_TYPE_PRM atp ON aa.ACTION_TYPE_ID    = atp.ID
 JOIN SMS.CS_AGREEMENT ag        ON a.AGREEMENT_ID       = ag.ID
-WHERE ai.INCOME_ID IN (23032, 163, 164, 165, 1936, 162, 3199, 3198, 7649, 7650, 7651, 7652, 12531)
+WHERE ai.INCOME_ID IN (163, 164, 165, 1936, 162, 3199, 3198, 7649, 7650, 7651, 7652, 12531)
+  /* 23032 damga haric — bkz ust not 3 */
   -- 45 = TEMİNAT MEKTUBU İLE TAHSİLAT → nakit (GTYPE=39) degil; mektup Dal 2'de
   AND aa.ACTION_TYPE_ID <> 45
   AND NOT EXISTS (

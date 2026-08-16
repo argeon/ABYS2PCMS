@@ -2,14 +2,19 @@
    SCRIPT_ID : SPEFEE_SETUP
    SCRIPT_NO : 584
    FILE      : 584_SPEFEE__setup.sql
-   VERSION   : 1
+   VERSION   : 2
    ============================================================ */
 -- ============================================================
--- izgazMGR.dbo.LS_SPEFEE → energy.dbo.LS_005_01_SPEFEE
+-- izgazMGR.dbo.LS_SPEFEE (+ LS_SPEFEE_ADD)
+--   → energy.dbo.LS_005_01_SPEFEE
 --   LREF ← ABYS_ID (IDENTITY_INSERT)
 --   ABYS_* bridge kolonlari hedefe eklenir
 --
--- Kaynak: Oracle CTAS (SMS.CS_ACCOUNT_ADD → MIGRATION.LS_SPEFEE)
+-- Kaynak:
+--   LS_SPEFEE     = SMS.CS_ACCOUNT_ADD  (ABYS_ID = CS_ACCOUNT_ADD.ID)
+--   LS_SPEFEE_ADD = CS_AGREEMENT.ROUND_VALUE ≠0 (ONCEKI AYDAN DEVIR)
+--                   ABYS_ID/LREF = 2000000000 + AGREEMENT_ID
+--                   (ham AGR.ID, CS_ACCOUNT_ADD.ID ile cakisiyor)
 -- ============================================================
 USE energy;
 GO
@@ -112,6 +117,7 @@ BEGIN
     END
 
     DECLARE @Missing NVARCHAR(MAX) = N'';
+    DECLARE @Msg NVARCHAR(4000);
 
     ;WITH Required (COL_NAME) AS (
         SELECT v.COL_NAME
@@ -143,13 +149,56 @@ BEGIN
 
     IF @Missing IS NOT NULL AND @Missing <> N''
     BEGIN
-        DECLARE @Msg NVARCHAR(4000) = N'LS_SPEFEE eksik kolonlar: ' + @Missing;
+        SET @Msg = N'LS_SPEFEE eksik kolonlar: ' + @Missing;
+        IF @RaiseOnMissing = 1 RAISERROR(@Msg, 16, 1);
+        RETURN 1;
+    END
+
+    IF OBJECT_ID('izgazMGR.dbo.LS_SPEFEE_ADD', 'U') IS NULL
+    BEGIN
+        IF @RaiseOnMissing = 1
+            RAISERROR('izgazMGR.dbo.LS_SPEFEE_ADD bulunamadi.', 16, 1);
+        RETURN 1;
+    END
+
+    SET @Missing = N'';
+    ;WITH RequiredAdd (COL_NAME) AS (
+        SELECT v.COL_NAME
+        FROM (VALUES
+            ('LREF'), ('LINEEXP'), ('INVOICEREF'), ('CUSTNAME'),
+            ('CLIENTREF'), ('OWNERREF'), ('CLIENTTYPE'),
+            ('TLTOTAL'), ('TAX'), ('GRANDTOTAL'),
+            ('ADDDATE'), ('ADDUSER'), ('CANCELLED'), ('UPDDATE'), ('UPDUSER'),
+            ('PRINTED'), ('IU_TYPE'), ('STYPE'), ('READING_ID'), ('STATUS'),
+            ('INSTALLMENT_NO'), ('INSTALLMENT_NR'),
+            ('ABYS_ID'), ('ABYS_AGREEMENT_ID'), ('ABYS_ACCOUNT_ID'),
+            ('ABYS_INCOME_ID'), ('ABYS_PERIOD'), ('ABYS_ACTION_DATE'),
+            ('ABYS_WORK_ORDER_ID'), ('ABYS_QUANTITY'), ('ABYS_ACCRUE_GROUP_ID'),
+            ('ABYS_CASH_ID'), ('ABYS_RECEIPT_SERIAL'), ('ABYS_RECEIPT_NUMBER'),
+            ('ABYS_ANALYSIS_ACCOUNT_ID'), ('ABYS_VERSION'),
+            ('ABYS_TRANSACTION_CODE'), ('ABYS_CREATED_USER_ID'),
+            ('ABYS_UPDATED_USER_ID'), ('ABYS_READING_ID')
+        ) v(COL_NAME)
+    )
+    SELECT @Missing = STRING_AGG(r.COL_NAME, ', ')
+    FROM RequiredAdd r
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM izgazMGR.sys.columns c
+        INNER JOIN izgazMGR.sys.tables t ON t.object_id = c.object_id
+        INNER JOIN izgazMGR.sys.schemas s ON s.schema_id = t.schema_id
+        WHERE s.name = 'dbo' AND t.name = 'LS_SPEFEE_ADD' AND c.name = r.COL_NAME
+    );
+
+    IF @Missing IS NOT NULL AND @Missing <> N''
+    BEGIN
+        SET @Msg = N'LS_SPEFEE_ADD eksik kolonlar: ' + @Missing;
         IF @RaiseOnMissing = 1 RAISERROR(@Msg, 16, 1);
         RETURN 1;
     END
 
     IF @RaiseOnMissing = 0
-        SELECT N'LS_SPEFEE kaynak dogrulama OK' AS VALIDATION_MESSAGE;
+        SELECT N'LS_SPEFEE + LS_SPEFEE_ADD kaynak dogrulama OK' AS VALIDATION_MESSAGE;
 
     RETURN 0;
 END
@@ -215,6 +264,7 @@ GO
 -- ------------------------------------------------------------
 -- Kaynak view (kolon eslemesi tek nokta)
 -- LREF <- ABYS_ID (IDENTITY_INSERT)
+-- SPEFEE_ADD: LREF/ABYS_ID = 2000000000 + AGREEMENT_ID (cakisma onlemi)
 -- ------------------------------------------------------------
 CREATE OR ALTER VIEW dbo.VW_MIG_SPEFEE_SOURCE
 AS
@@ -262,7 +312,55 @@ SELECT
     CAST(s.ABYS_CREATED_USER_ID AS BIGINT)                                      AS ABYS_CREATED_USER_ID,
     CAST(s.ABYS_UPDATED_USER_ID AS BIGINT)                                      AS ABYS_UPDATED_USER_ID,
     CAST(s.ABYS_READING_ID AS BIGINT)                                           AS ABYS_READING_ID
-FROM izgazMGR.dbo.LS_SPEFEE s;
+FROM izgazMGR.dbo.LS_SPEFEE s
+
+UNION ALL
+
+SELECT
+    CAST(2000000000 + CAST(a.ABYS_ID AS BIGINT) AS BIGINT)                      AS ABYS_ID,
+    CAST(TRY_CAST(a.STYPE_OLD AS INT) AS TINYINT)                               AS STYPE_OLD,
+    LEFT(a.LINEEXP, 100)                                                        AS LINEEXP,
+    CAST(TRY_CAST(a.INVOICEREF AS BIGINT) AS INT)                               AS INVOICEREF,
+    LEFT(a.CUSTNAME, 50)                                                        AS CUSTNAME,
+    CAST(TRY_CAST(a.CLIENTREF AS BIGINT) AS INT)                                AS CLIENTREF,
+    CAST(TRY_CAST(a.OWNERREF AS BIGINT) AS INT)                                 AS OWNERREF,
+    CAST(ISNULL(TRY_CAST(a.CLIENTTYPE AS BIGINT), 91) AS TINYINT)               AS CLIENTTYPE,
+    TRY_CAST(a.TLTOTAL AS FLOAT)                                                AS TLTOTAL,
+    TRY_CAST(a.TAX AS FLOAT)                                                    AS TAX,
+    TRY_CAST(a.GRANDTOTAL AS FLOAT)                                             AS GRANDTOTAL,
+    energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(a.ADDDATE AS DATETIME2))                AS ADDDATE,
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(TRY_CAST(a.ADDUSER AS BIGINT) AS INT)) AS ADDUSER,
+    CAST(ISNULL(TRY_CAST(a.CANCELLED AS INT), 0) AS BIT)                        AS CANCELLED,
+    energy.dbo.FN_SAFE_SMALLDT_DEP(CAST(a.UPDDATE AS DATETIME2))                AS UPDDATE,
+    energy.dbo.FN_MIG_MAP_USER_USERID(CAST(TRY_CAST(a.UPDUSER AS BIGINT) AS INT)) AS UPDUSER,
+    CAST(TRY_CAST(a.READ_TRANSFERREF AS BIGINT) AS INT)                         AS READ_TRANSFERREF,
+    CAST(TRY_CAST(a.READ_NO AS BIGINT) AS INT)                                  AS READ_NO,
+    CAST(ISNULL(TRY_CAST(a.PRINTED AS INT), 0) AS BIT)                          AS PRINTED,
+    CAST(ISNULL(TRY_CAST(a.IU_TYPE AS BIGINT), 1929) AS INT)                    AS IU_TYPE,
+    CAST(TRY_CAST(a.IND_DIFF AS BIGINT) AS INT)                                 AS IND_DIFF,
+    CAST(ISNULL(TRY_CAST(a.STYPE AS BIGINT), 6) AS INT)                         AS STYPE,
+    CAST(TRY_CAST(a.READING_ID AS BIGINT) AS INT)                               AS READING_ID,
+    CAST(TRY_CAST(a.STATUS AS INT) AS INT)                                      AS STATUS,
+    CAST(TRY_CAST(a.INSTALLMENT_NO AS INT) AS INT)                              AS INSTALLMENT_NO,
+    CAST(TRY_CAST(a.INSTALLMENT_NR AS INT) AS INT)                              AS INSTALLMENT_NR,
+    CAST(a.ABYS_AGREEMENT_ID AS BIGINT)                                         AS ABYS_AGREEMENT_ID,
+    CAST(a.ABYS_ACCOUNT_ID AS BIGINT)                                           AS ABYS_ACCOUNT_ID,
+    CAST(ISNULL(TRY_CAST(a.ABYS_INCOME_ID AS BIGINT), 1929) AS BIGINT)          AS ABYS_INCOME_ID,
+    CAST(TRY_CAST(a.ABYS_PERIOD AS INT) AS INT)                                 AS ABYS_PERIOD,
+    CAST(a.ABYS_ACTION_DATE AS DATETIME2(0))                                    AS ABYS_ACTION_DATE,
+    CAST(a.ABYS_WORK_ORDER_ID AS BIGINT)                                        AS ABYS_WORK_ORDER_ID,
+    CAST(a.ABYS_QUANTITY AS DECIMAL(7,2))                                       AS ABYS_QUANTITY,
+    CAST(a.ABYS_ACCRUE_GROUP_ID AS BIGINT)                                      AS ABYS_ACCRUE_GROUP_ID,
+    CAST(a.ABYS_CASH_ID AS BIGINT)                                              AS ABYS_CASH_ID,
+    LEFT(a.ABYS_RECEIPT_SERIAL, 2)                                              AS ABYS_RECEIPT_SERIAL,
+    CAST(a.ABYS_RECEIPT_NUMBER AS DECIMAL(25,0))                                AS ABYS_RECEIPT_NUMBER,
+    CAST(a.ABYS_ANALYSIS_ACCOUNT_ID AS BIGINT)                                  AS ABYS_ANALYSIS_ACCOUNT_ID,
+    CAST(a.ABYS_VERSION AS BIGINT)                                              AS ABYS_VERSION,
+    LEFT(a.ABYS_TRANSACTION_CODE, 20)                                           AS ABYS_TRANSACTION_CODE,
+    CAST(a.ABYS_CREATED_USER_ID AS BIGINT)                                      AS ABYS_CREATED_USER_ID,
+    CAST(a.ABYS_UPDATED_USER_ID AS BIGINT)                                      AS ABYS_UPDATED_USER_ID,
+    CAST(a.ABYS_READING_ID AS BIGINT)                                           AS ABYS_READING_ID
+FROM izgazMGR.dbo.LS_SPEFEE_ADD a;
 GO
 
 IF OBJECT_ID('dbo.SP_MIGRATE_LS_SPEFEE', 'P') IS NOT NULL

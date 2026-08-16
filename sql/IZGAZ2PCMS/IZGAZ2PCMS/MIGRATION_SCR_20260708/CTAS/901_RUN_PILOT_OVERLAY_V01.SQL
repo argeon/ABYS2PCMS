@@ -1,0 +1,65 @@
+-- 901_RUN_PILOT_OVERLAY_V01.SQL
+-- Amac: Pilot overlay orch
+-- Gate: yok
+-- Sonraki: 902_STG_CLEANUP_V01.SQL
+-- oracleCTAS3007 / 00_run_pilot_overlay.sql
+-- Ornek AGR tahsilat overlay (full CTAS DEGIL — dakikalar)
+-- Onkosul: LS_INVOICE (+ INVLINES/DEBT) zaten var VEYA once O10-O14 pilot kosuldu
+--
+-- Kullanim:
+--   @@011_SESSION_PARALLEL_V01.SQL
+--   @@010_MIG_CTAS_LOG_V01.SQL
+--   @@900_MIG_PARAM_PILOT_V01.SQL          -- AGR listesi
+--   @@901_RUN_PILOT_OVERLAY_V01.SQL        -- bu dosya
+--
+-- UYARI: O30 DROP+CREATE → LS_OV_* yalniz MIG_PARAM AGR kapsami.
+--        Prod full dump icin @@012_MIG_PARAM_FULL_V01.SQL + @@00_run_all.sql
+WHENEVER SQLERROR EXIT FAILURE
+SET ECHO ON
+SET SERVEROUTPUT ON SIZE UNLIMITED
+SET TIMING ON
+SET DEFINE OFF
+
+PROMPT ========== oracleCTAS3007 PILOT OVERLAY START ==========
+
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM MIGRATION.MIG_PARAM WHERE AGR_ID IS NOT NULL;
+  IF n = 0 THEN
+    RAISE_APPLICATION_ERROR(-20000,
+      'MIG_PARAM.AGR_ID bos — once @@00_mig_param_pilot.sql');
+  END IF;
+  DBMS_OUTPUT.PUT_LINE('PILOT AGR_CNT=' || n);
+END;
+/
+
+-- INV yoksa kisa zincir (pilot scope)
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM ALL_TABLES
+   WHERE OWNER='MIGRATION' AND TABLE_NAME='LS_INVOICE';
+  IF n = 0 THEN
+    RAISE_APPLICATION_ERROR(-20001,
+      'LS_INVOICE yok — @@10 + @@11 + @@12 + @@14 (MIG_PARAM pilot) kosun.');
+  END IF;
+END;
+/
+
+@@137_LS_TAHSILAT_OVERLAY_V01.SQL
+@@138_LS_OV_DEBT_PAID_LASTPAID_V01.SQL
+@@139_LS_OV_PAY_PT_BANK_ENRICH_V01.SQL
+@@140_LS_INVOICE_CLOSE_BANK_V01.SQL
+@@141_LS_DEBT_PAYTRANS_REBUILD_V01.SQL
+@@142_LS_OV_ID_MAP_V01.SQL
+@@143_GATE_TAHSILAT_V01.SQL
+@@210_LS_OV_GUVENCE_IADE_V01.SQL
+
+PROMPT ========== PILOT OVERLAY DONE ==========
+PROMPT Sonraki: dump (PAY_PT TAH_INV DEBT_PAID INV MAP + GUVENCE_IADE) → izgazMGR
+PROMPT         veya wizard pilotDumpMgr APPLY
+PROMPT         sonra Energy SP_MIG_597_ALL @AGR_ID=...
+/
+
+

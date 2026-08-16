@@ -119,7 +119,8 @@ BEGIN
       'SOFT ok=' || n_early_ok || ' ghost_warn=' || n_early_ghost);
     IF n_early_ghost > 0 THEN
       MIGRATION.P_MIG_CTAS_LOG('O41', 'early_pay', 'WARN', n_early_ghost,
-        'EARLY_PAY_GHOST=' || n_early_ghost || ' (kabul — FAIL yok)');
+        'EARLY_PAY_GHOST=' || n_early_ghost
+        || ' — hard PASS; residual (diag 41_diag_early_pay_ghost; sonraki O30)');
     END IF;
   END IF;
 

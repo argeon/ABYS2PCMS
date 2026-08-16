@@ -83,13 +83,46 @@ LEFT JOIN end_id x ON x.START_LOG_ID = s.LOG_ID
 LEFT JOIN e ON e.LOG_ID = x.END_LOG_ID
 ORDER BY s.LOG_ID;
 
-PROMPT ========== GATE / FAIL var mi? ==========
+PROMPT ========== GATE / FAIL — BU KOSU (otorite) ==========
+-- Append-only log: eski GATE_FAIL satirlari KALIR. Kontrol = son definitive status.
+-- FAIL sayilmaz: ayni STEP_ID icin daha sonra GATE_PASS/OK geldiyse.
+WITH run0 AS (
+  SELECT NVL(MIN(LOG_TS), SYSTIMESTAMP - 1) AS TS
+  FROM MIGRATION.MIG_CTAS_LOG
+  WHERE TRUNC(LOG_TS) = TRUNC(SYSDATE)
+    AND STATUS = 'START'
+),
+last_def AS (
+  SELECT STEP_ID, STATUS, NOTE, LOG_TS, ELAPSED_SEC, LOG_ID,
+         ROW_NUMBER() OVER (
+           PARTITION BY STEP_ID
+           ORDER BY LOG_ID DESC
+         ) RN
+  FROM MIGRATION.MIG_CTAS_LOG
+  WHERE LOG_TS >= (SELECT TS FROM run0)
+    AND STATUS IN ('OK', 'GATE_PASS', 'GATE_FAIL', 'FAIL')
+)
+SELECT STEP_ID, STATUS, NOTE, LOG_TS, ELAPSED_SEC
+FROM last_def
+WHERE RN = 1
+  AND STATUS IN ('FAIL', 'GATE_FAIL')
+ORDER BY LOG_ID;
+
+PROMPT ========== GATE / FAIL — bugun ham (tarih filtresi) ==========
 SELECT STEP_ID, STATUS, NOTE, LOG_TS, ELAPSED_SEC
 FROM MIGRATION.MIG_CTAS_LOG
 WHERE STATUS IN ('FAIL', 'GATE_FAIL')
+  AND LOG_TS >= TRUNC(SYSDATE)
 ORDER BY LOG_ID DESC;
 
-PROMPT ========== Toplam (OK wrap adimlari) ==========
+PROMPT ========== GECMIS FAIL (bilgi — bu kosuyu bloklamaz) ==========
+SELECT STEP_ID, STATUS, SUBSTR(NOTE, 1, 80) NOTE, LOG_TS
+FROM MIGRATION.MIG_CTAS_LOG
+WHERE STATUS IN ('FAIL', 'GATE_FAIL')
+  AND LOG_TS < TRUNC(SYSDATE)
+ORDER BY LOG_ID DESC;
+
+PROMPT ========== Toplam (OK wrap adimlari — bugun son OK) ==========
 SELECT COUNT(*) AS OK_STEPS,
        SUM(ROW_CNT) AS SUM_ROWS,
        ROUND(SUM(NVL(SIZE_MB, 0)), 2) AS SUM_MB,
@@ -100,6 +133,7 @@ FROM (
   FROM MIGRATION.MIG_CTAS_LOG
   WHERE STATUS = 'OK'
     AND ELAPSED_SEC IS NOT NULL
+    AND LOG_TS >= TRUNC(SYSDATE)
 )
 WHERE RN = 1;
 /

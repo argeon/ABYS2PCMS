@@ -6,7 +6,9 @@
    ============================================================ */
 -- ============================================================
 -- SP_MIGRATE_LS_SPEFEE
--- Kaynak  : izgazMGR.dbo.LS_SPEFEE
+-- Kaynak  : VW_MIG_SPEFEE_SOURCE
+--           = izgazMGR.LS_SPEFEE
+--           + izgazMGR.LS_SPEFEE_ADD (ABYS_ID = 2000000000+AGR)
 -- Hedef   : energy.dbo.LS_005_01_SPEFEE
 -- Kaynak ABYS_ID → hedef LREF (IDENTITY_INSERT)
 -- ============================================================
@@ -170,7 +172,7 @@ BEGIN
     EXEC energy.dbo.SP_MIG_LOG_START_RUN
         @MigrationCode  = @MigrationCode,
         @SourceDb       = 'izgazMGR',
-        @SourceTable    = 'LS_SPEFEE',
+        @SourceTable    = 'LS_SPEFEE+LS_SPEFEE_ADD',
         @TargetTable    = 'LS_005_01_SPEFEE',
         @RunPhase       = 'INSERT',
         @ExecMode       = @ExecMode,

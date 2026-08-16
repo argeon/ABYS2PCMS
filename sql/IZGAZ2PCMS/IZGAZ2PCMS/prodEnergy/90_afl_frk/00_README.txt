@@ -61,7 +61,9 @@ Tek liste (kod + checklist):
   Paket/patch ayrimi: ../PAKET_PATCH_HIZALAMA.md
   Hotfix envanter: ../HOTFIX_ANLIK_ENVANTER.md · ../patch/README.md
 
-PAKET (cutover): 597 v5 · E610 60-69 · 92 STG · validate 95/97/99
+PAKET (cutover): 597 v5 · E610 60-69 · 92 STG · 92 DV · 93 FEE · validate 95/97/99
+  Runbook: prodREADY_ENERGY/CUTOVER_ONE_PAGE.md
+  Gün planı: prodREADY_ENERGY/NOTES_CUTOVER_DAY_20260811.md
 PATCH (zincire koyma): hotfix/03-04 · 91* residual · 96 spot
 TEST YASAK: 98_TEST_*
 ACIK KOD (heal ile kapatma): asagidaki 1-3
@@ -76,6 +78,21 @@ Ozet — canlida yapilacak:
 FRK okuma (hizli):
   DELTA_TAH_EKS = overlay/IADE | DELTA_TAH_NET = gercek tah
   DELTA_KALAN(_EKS/_NET) = acik PT | EN_IADE/TYPE92 = TAM | OV KIND ASIM ≠ mahsup
+
+Rapor — CLOSED=1 + LASTPAIDDATE NULL dayanak
+----
+100_closed_lpd_null_dayanak.sql  → REPORT/100_CLOSED_LPD_NULL_DAYANAK.SQL
+  PAY_0 = zero-payable (AFL degil) | PAY_NZ = D/C/B/F/X/Y sinif
+  AFL demek icin log hit (91f/g/i / TAM) veya CANCEL_REV+AFL≈0 imza
+
+PATCH residual (EXEC zincirine koyma):
+  91f_en_gt_afl_kalan_heal.sql — EN_GT_AFL + AFL≈0 → MAIN PT close (@DryRun=1→0)
+  91g_en_gt_afl_partial_heal.sql — EN_GT_AFL + AFL>0 → FIFO excess PAID (AFL tutari acik)
+  91h_afl_gt_en_reopen_heal.sql — AFL_GT_EN → PAID geri al / CLOSED=0 (AFL taban)
+  91i_overpay_paid_clamp_heal.sql — AFL≈0 + EN<0 overpay → PAID=PAYABLE clamp
+  91j_afl_tutar_kalan_heal.sql — hesap grain AFL.BALANCE vs kanonik EN kalan (CLOSE+REOPEN)
+  Test runbook: NOTES_AFL_HEAL_TEST_20260811.md  (05:00 aktarım testi)
+    seed: MIG_AGR_FRK_ALL material bands; reopen AFL>EN | close EN>AFL | clamp overpay
 
 DEV BACKLOG / test heal (2026-08-06..07)
 ----

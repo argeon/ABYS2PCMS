@@ -4,9 +4,10 @@
 
 | Klasör | Rol |
 |--------|-----|
-| `prodEnergy/` | Canlı Energy (195 senkron kaynak) |
-| `BACKUP/oracleCTAS3007/` | CTAS omurga |
-| `BACKUP/20260708/` | Snapshot (`_sync_snapshot.ps1`) |
+| `prodEnergy/` | Canlı düzenleme (kaynak) |
+| `MIGRATION_SCR_20260708/` | Temiz paket = 195 (`CTAS`/`ENERGY`/`REPORT`) |
+| `BACKUP/oracleCTAS3007/` | CTAS omurga kaynağı |
 | `CANONICAL/` | Tek doğru yol listesi |
 
-Eski ağaçlar `BACKUP/` altında; silmeden önce CANONICAL’a bak.
+195: `C:\www\MIGRATION_SCR_20260708` ↔ repo `MIGRATION_SCR_20260708/`  
+Sync: `MIGRATION_SCR_20260708/_sync_snapshot.ps1` → `_deploy_195.ps1`

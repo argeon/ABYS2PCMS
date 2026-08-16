@@ -1,25 +1,39 @@
 ---
-description: IZGAZ2PCMS canlı paket + 20260708 arşiv snapshot
+description: IZGAZ2PCMS canlı paket + MIGRATION_SCR_20260708 (repo = 195)
 alwaysApply: true
 ---
 
 # IZGAZ2PCMS paket düzeni
 
-**Canlı (195 senkron):** `sql/IZGAZ2PCMS/IZGAZ2PCMS/prodEnergy/`  
+**Canlı düzenleme:** `sql/IZGAZ2PCMS/IZGAZ2PCMS/prodEnergy/`  
 (`prodREADY_ENERGY` + `prodREADY_ENERGY3007` + `90_afl_frk`)
 
-**Tarihli arşiv snapshot:** `sql/IZGAZ2PCMS/IZGAZ2PCMS/BACKUP/20260708/`  
-Kaynaklar `prodEnergy` (+ BACKUP içindeki CTAS / Mgr2Energy); snapshot kopyadır.
+**Temiz paket yüzeyi (repo = 195, aynı yapı/ad):**  
+`sql/IZGAZ2PCMS/IZGAZ2PCMS/MIGRATION_SCR_20260708/`  
+↔ `C:\www\MIGRATION_SCR_20260708` (`\\172.16.1.195\C$\www\MIGRATION_SCR_20260708`)
 
-- **CTAS/** — `oracleCTAS3007` omurga + `oracleCTAS/prodREADY` (aynı ad → daha yeni). Ad = `NNN_ORIJINAL_AD.SQL`. Sıra: `000_RUN_ORDER.MD`
-- **ENERGY/** — `prodREADY_ENERGY` + Mgr2Energy (57x) + `prodREADY_ENERGY3007` + `90_afl_frk` + GUVENCE 610 + NOTES
-- **REPORT/** — kontrol / FRK / checklist kopyaları
-- Manifest: `README.md`, `MANIFEST_*.txt`
-- Yenile: `BACKUP/20260708/_sync_snapshot.ps1` (script içi yollar güncel tutulmalı)
+```text
+MIGRATION_SCR_20260708/
+  CTAS/
+  ENERGY/
+  REPORT/
+  README.md
+  MANIFEST_*.txt
+  _sync_snapshot.ps1
+  _deploy_195.ps1
+```
+
+| Klasör | İçerik |
+|--------|--------|
+| **CTAS/** | `oracleCTAS3007` omurga + `oracleCTAS/prodREADY` (aynı ad → daha yeni) |
+| **ENERGY/** | `prodREADY_ENERGY` + Mgr2Energy + `prodREADY_ENERGY3007` + `90_afl_frk` + NOTES |
+| **REPORT/** | kontrol / FRK / checklist |
+
+Yenile: `_sync_snapshot.ps1` · 195 mirror: `_deploy_195.ps1`
 
 ## Kurallar
 
-- Canlı düzenleme: **prodEnergy**. Snapshot’a bilinçli arşiv kopyası.
-- `BACKUP/` altındaki düz SQL / CTAS / eski yedekler arşiv; varsayılan çalışma yolu değil.
-- Scratch → repo `_tmp/`; loglar → repo `logs/`.
-- Yeni tarihli yedek: `BACKUP/YYYYMMDD/CTAS` + `ENERGY` + `REPORT`.
+- Canlı düzenleme: **prodEnergy** (+ CTAS için `BACKUP/oracleCTAS*`). Paket yüzeyi kopyadır.
+- Repo ve 195 kökünde **yalnız** `CTAS` + `ENERGY` + `REPORT` (+ manifest/README/script). `SRC_*` yok.
+- Eski yol `BACKUP/20260708` kaldırıldı → `MIGRATION_SCR_20260708`.
+- Scratch → `_tmp/`; loglar → `logs/`.

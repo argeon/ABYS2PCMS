@@ -45,7 +45,7 @@ SELECT /*+ PARALLEL(56) */
     CAST(inv.CLIENTREF AS NUMBER(12))                             AS CLIENTREF,
     CAST(NVL(inv.OWNERTYPE, 91) AS NUMBER(3))                     AS CLIENT_TYPE,
     CAST(0 AS NUMBER(3))                                          AS IOCODE,
-    /* LS_001: TLTOTAL=KDV haric; GRANDTOTAL=KDV dahil (~TL+TAX; 109 ~TL+DV) */
+    /* LS_001: TLTOTAL=KDV+DV haric; GRANDTOTAL=dahil (~TL+TAX+DV; 109 ~TL+DV) */
     CAST(inv.TLTOTAL AS NUMBER(18,3))                             AS TLTOTAL,
     CAST(0 AS NUMBER(18,3))                                       AS PAID,
     inv.DUEDATE,

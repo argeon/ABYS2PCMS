@@ -1,94 +1,127 @@
-/*
-  20a_597_TAH_MAP_FAST_FILL.sql
-  ---------------------------------------------------------------
-  TAH_INV MAP hızlı doldurma (resume / CLEAN sonrası).
-  - INV join YOK (LREF_HINT = energy INVOICE.LREF varsayımı)
-  - Batch 500000, dış BEGIN TRAN YASAK
-  - EN MAP önce; MGR MAP sync sonda
-  Kullanım (energy):
-    sqlcmd -I -d energy -i 20a_597_TAH_MAP_FAST_FILL.sql
-*/
-SET NOCOUNT ON;
-SET XACT_ABORT ON;
-SET QUOTED_IDENTIFIER ON;
-SET ANSI_NULLS ON;
-SET IMPLICIT_TRANSACTIONS OFF;
-
+/* =============================================================================
+   prodREADY_ENERGY / 20a_597_TAH_MAP_FAST_FILL.sql
+   CREATE OR ALTER PROCEDURE dbo.SP_MIG_20A_TAH_MAP_FILL  (R24 2026-08-11)
+   TAH_INV MAP hızlı doldurma (resume). Cutover zincire koyma — opsiyonel.
+   EXEC dbo.SP_MIG_20A_TAH_MAP_FILL @Batch = 500000;
+   ============================================================================= */
 USE energy;
 GO
-
-DECLARE @Batch INT = 500000;
-DECLARE @N INT, @Total BIGINT = 0;
-DECLARE @Msg NVARCHAR(400);
-DECLARE @t0 DATETIME2 = SYSDATETIME();
-
-RAISERROR('========== 597 TAH MAP FAST FILL START ==========', 0, 1) WITH NOWAIT;
-
-/* ---- energy MIG_OV_ID_MAP ---- */
-SET @Total = 0;
-WHILE 1 = 1
-BEGIN
-    UPDATE TOP (@Batch) m
-    SET m.ENERGY_LREF = CAST(s.LREF_HINT AS INT)
-    FROM dbo.MIG_OV_ID_MAP m
-    INNER JOIN izgazMGR.dbo.LS_OV_TAH_INVOICE s WITH (NOLOCK)
-        ON s.SRC_KEY = m.SRC_KEY
-    WHERE m.OV_KIND = 'TAH_INV'
-      AND m.ENERGY_LREF IS NULL
-      AND s.LREF_HINT BETWEEN 1 AND 2147483647
-    OPTION (RECOMPILE, MAXDOP 8);
-
-    SET @N = @@ROWCOUNT;
-    IF @N = 0 BREAK;
-
-    SET @Total = @Total + @N;
-    SET @Msg = N'EN TAH MAP +' + CAST(@N AS VARCHAR(20))
-             + N' total=' + CAST(@Total AS VARCHAR(20))
-             + N' elapsed_s=' + CAST(DATEDIFF(SECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
-    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-END
-
-SET @Msg = N'EN TAH MAP done total=' + CAST(@Total AS VARCHAR(20))
-         + N' elapsed_s=' + CAST(DATEDIFF(SECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
-RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-
-/* ---- izgazMGR MIG_OV_ID_MAP sync ---- */
-DECLARE @t1 DATETIME2 = SYSDATETIME();
-SET @Total = 0;
-WHILE 1 = 1
-BEGIN
-    UPDATE TOP (@Batch) mgr
-    SET mgr.ENERGY_LREF = m.ENERGY_LREF
-    FROM izgazMGR.dbo.LS_OV_ID_MAP mgr
-    INNER JOIN dbo.MIG_OV_ID_MAP m
-        ON m.SRC_KEY = mgr.SRC_KEY
-       AND m.OV_KIND = 'TAH_INV'
-    WHERE mgr.OV_KIND = 'TAH_INV'
-      AND mgr.ENERGY_LREF IS NULL
-      AND m.ENERGY_LREF IS NOT NULL
-    OPTION (RECOMPILE, MAXDOP 8);
-
-    SET @N = @@ROWCOUNT;
-    IF @N = 0 BREAK;
-
-    SET @Total = @Total + @N;
-    SET @Msg = N'MGR TAH MAP +' + CAST(@N AS VARCHAR(20))
-             + N' total=' + CAST(@Total AS VARCHAR(20))
-             + N' elapsed_s=' + CAST(DATEDIFF(SECOND, @t1, SYSDATETIME()) AS VARCHAR(20));
-    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-END
-
-SET @Msg = N'MGR TAH MAP done total=' + CAST(@Total AS VARCHAR(20))
-         + N' elapsed_s=' + CAST(DATEDIFF(SECOND, @t1, SYSDATETIME()) AS VARCHAR(20));
-RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
-
-SELECT
-    (SELECT COUNT_BIG(*) FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
-     WHERE OV_KIND = 'TAH_INV' AND ENERGY_LREF IS NOT NULL) AS en_map_tah,
-    (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
-     WHERE OV_KIND = 'TAH_INV' AND ENERGY_LREF IS NOT NULL) AS mgr_map_tah,
-    (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_TAH_INVOICE WITH (NOLOCK)) AS mgr_tah,
-    (SELECT COUNT_BIG(*) FROM dbo.LS_005_01_INVOICE WITH (NOLOCK) WHERE [TYPE] = 101) AS en_tah;
-
-RAISERROR('========== 597 TAH MAP FAST FILL DONE ==========', 0, 1) WITH NOWAIT;
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
 GO
+CREATE OR ALTER PROCEDURE dbo.SP_MIG_20A_TAH_MAP_FILL
+    @Batch INT = 500000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET IMPLICIT_TRANSACTIONS OFF;
+
+    DECLARE @N INT, @Upd INT, @Total BIGINT = 0;
+    DECLARE @Msg NVARCHAR(400);
+    DECLARE @t0 DATETIME2 = SYSDATETIME();
+    DECLARE @LastKey VARCHAR(80) = N'';
+    DECLARE @t1 DATETIME2;
+
+    RAISERROR('========== SP_MIG_20A_TAH_MAP_FILL START ==========', 0, 1) WITH NOWAIT;
+
+    IF OBJECT_ID('dbo.MIG_20A_STG_KEYS', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.MIG_20A_STG_KEYS (
+            SRC_KEY     VARCHAR(80) NOT NULL,
+            ENERGY_LREF INT         NOT NULL,
+            CONSTRAINT PK_MIG_20A_STG_KEYS PRIMARY KEY CLUSTERED (SRC_KEY)
+        );
+        RAISERROR('CREATE MIG_20A_STG_KEYS', 0, 1) WITH NOWAIT;
+    END
+
+    SET @Total = 0;
+    SET @LastKey = N'';
+    WHILE 1 = 1
+    BEGIN
+        TRUNCATE TABLE dbo.MIG_20A_STG_KEYS;
+
+        INSERT INTO dbo.MIG_20A_STG_KEYS (SRC_KEY, ENERGY_LREF)
+        SELECT TOP (@Batch) m.SRC_KEY, CAST(s.LREF_HINT AS INT)
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN izgazMGR.dbo.LS_OV_TAH_INVOICE s WITH (NOLOCK)
+            ON s.SRC_KEY = m.SRC_KEY
+        WHERE m.OV_KIND = 'TAH_INV'
+          AND m.ENERGY_LREF IS NULL
+          AND m.SRC_KEY > @LastKey
+          AND s.LREF_HINT BETWEEN 1 AND 2147483647
+        ORDER BY m.SRC_KEY
+        OPTION (RECOMPILE, MAXDOP 8);
+
+        SET @N = @@ROWCOUNT;
+        IF @N = 0 BREAK;
+
+        UPDATE m
+        SET m.ENERGY_LREF = b.ENERGY_LREF
+        FROM dbo.MIG_OV_ID_MAP m
+        INNER JOIN dbo.MIG_20A_STG_KEYS b ON b.SRC_KEY = m.SRC_KEY
+        OPTION (RECOMPILE, MAXDOP 8, FORCE ORDER);
+
+        SET @Upd = @@ROWCOUNT;
+        SELECT @LastKey = MAX(SRC_KEY) FROM dbo.MIG_20A_STG_KEYS;
+        SET @Total = @Total + @Upd;
+        SET @Msg = N'EN TAH MAP +' + CAST(@Upd AS VARCHAR(20))
+                 + N' total=' + CAST(@Total AS VARCHAR(20))
+                 + N' last=' + @LastKey
+                 + N' elapsed_s=' + CAST(DATEDIFF(SECOND, @t0, SYSDATETIME()) AS VARCHAR(20));
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    SET @Msg = N'EN TAH MAP done total=' + CAST(@Total AS VARCHAR(20));
+    RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+
+    SET @t1 = SYSDATETIME();
+    SET @Total = 0;
+    SET @LastKey = N'';
+
+    WHILE 1 = 1
+    BEGIN
+        TRUNCATE TABLE dbo.MIG_20A_STG_KEYS;
+
+        INSERT INTO dbo.MIG_20A_STG_KEYS (SRC_KEY, ENERGY_LREF)
+        SELECT TOP (@Batch) m.SRC_KEY, m.ENERGY_LREF
+        FROM dbo.MIG_OV_ID_MAP m WITH (NOLOCK)
+        WHERE m.OV_KIND = 'TAH_INV'
+          AND m.ENERGY_LREF IS NOT NULL
+          AND m.SRC_KEY > @LastKey
+        ORDER BY m.SRC_KEY
+        OPTION (RECOMPILE, MAXDOP 8);
+
+        SET @N = @@ROWCOUNT;
+        IF @N = 0 BREAK;
+
+        UPDATE mgr
+        SET mgr.ENERGY_LREF = b.ENERGY_LREF
+        FROM izgazMGR.dbo.LS_OV_ID_MAP mgr
+        INNER JOIN dbo.MIG_20A_STG_KEYS b ON b.SRC_KEY = mgr.SRC_KEY
+        WHERE mgr.ENERGY_LREF IS NULL
+        OPTION (RECOMPILE, MAXDOP 8, FORCE ORDER);
+
+        SET @Upd = @@ROWCOUNT;
+        SELECT @LastKey = MAX(SRC_KEY) FROM dbo.MIG_20A_STG_KEYS;
+        SET @Total = @Total + @Upd;
+        SET @Msg = N'MGR TAH MAP +' + CAST(@Upd AS VARCHAR(20))
+                 + N'/' + CAST(@N AS VARCHAR(20))
+                 + N' total=' + CAST(@Total AS VARCHAR(20))
+                 + N' last=' + @LastKey;
+        RAISERROR('%s', 0, 1, @Msg) WITH NOWAIT;
+    END
+
+    SELECT
+        (SELECT COUNT_BIG(*) FROM dbo.MIG_OV_ID_MAP WITH (NOLOCK)
+         WHERE OV_KIND = 'TAH_INV' AND ENERGY_LREF IS NOT NULL) AS en_map_tah,
+        (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
+         WHERE OV_KIND = 'TAH_INV' AND ENERGY_LREF IS NOT NULL) AS mgr_map_tah,
+        (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_ID_MAP WITH (NOLOCK)
+         WHERE OV_KIND = 'TAH_INV' AND ENERGY_LREF IS NULL) AS mgr_map_tah_null,
+        (SELECT COUNT_BIG(*) FROM izgazMGR.dbo.LS_OV_TAH_INVOICE WITH (NOLOCK)) AS mgr_tah;
+
+    RAISERROR('========== SP_MIG_20A_TAH_MAP_FILL DONE ==========', 0, 1) WITH NOWAIT;
+END
+GO
+/* EXEC dbo.SP_MIG_20A_TAH_MAP_FILL; */

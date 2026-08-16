@@ -82,8 +82,10 @@ SELECT /*+ PARALLEL(56) */
       ) AS NUMBER(5)
     )                                                             AS LINENR_SRC,
 
+    /* KDV her tip; DV satiri yalniz TYPE 109/111 (guvence) */
     CAST(
       CASE WHEN NVL(ip.IS_VAT_INCOME, 0) = 1 THEN 0
+           WHEN inv.TYPE IN (109, 111) AND ai.INCOME_ID IN (23032, 938, 1863) THEN 0
            ELSE NVL(ai.AMOUNT, 0)
       END AS NUMBER(18,3)
     )                                                             AS TLTOTAL,
@@ -92,6 +94,7 @@ SELECT /*+ PARALLEL(56) */
     CAST(1 AS NUMBER(18,6))                                       AS CURRATE,
     CAST(
       CASE WHEN NVL(ip.IS_VAT_INCOME, 0) = 1 THEN 0
+           WHEN inv.TYPE IN (109, 111) AND ai.INCOME_ID IN (23032, 938, 1863) THEN 0
            ELSE NVL(ai.AMOUNT, 0)
       END AS NUMBER(18,3)
     )                                                             AS CURTOTAL,
@@ -128,7 +131,12 @@ SELECT /*+ PARALLEL(56) */
     )                                                             AS LINEEXP,
 
     CAST(NVL(ip.INCOME_TYPE, 0) AS NUMBER(10))                    AS LINETYPE,
-    CAST(0 AS NUMBER(18,3))                                       AS DV,
+    CAST(
+      CASE WHEN inv.TYPE IN (109, 111) AND ai.INCOME_ID IN (23032, 938, 1863)
+           THEN NVL(ai.AMOUNT, 0)
+           ELSE 0
+      END AS NUMBER(18,3)
+    )                                                             AS DV,
     CAST(TO_CHAR(inv.FITNO) AS VARCHAR2(100))                     AS FITNO,
     CAST(NULL AS NUMBER(10))                                      AS CNTREF,
     CAST(NULL AS NUMBER(10))                                      AS LOGO_FIRMNR,
